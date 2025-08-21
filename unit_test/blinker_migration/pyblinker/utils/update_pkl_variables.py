@@ -107,5 +107,5 @@ def update_pkl_file(path: str) -> None:
 
 
 if __name__ == "__main__":
-    update_pkl_file("../blink_properties_fits.pkl")
-    update_pkl_file("../file_test_blink_position.pkl")
+    update_pkl_file("../../../test_files/blink_properties_fits.pkl")
+    update_pkl_file("../../../test_files/file_test_blink_position.pkl")

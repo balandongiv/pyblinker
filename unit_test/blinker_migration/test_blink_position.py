@@ -13,7 +13,7 @@ class TestGetBlinkPosition(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Load debug data once for all tests
-        base_path = Path(__file__).resolve().parent
+        base_path = Path(__file__).resolve().parents[1] / "test_files"
         with (base_path / 'file_test_blink_position.pkl').open('rb') as f:
             cls.debug_data = pickle.load(f)
         cls.debug_data['params'] = rename_keys(cls.debug_data['params'], RENAME_MAP)

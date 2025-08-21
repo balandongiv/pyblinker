@@ -87,7 +87,7 @@ def candidate_signal() -> np.ndarray:
     Returns:
         np.ndarray: 1D EEG signal array.
     """
-    base_path = Path(__file__).resolve().parent
+    base_path = Path(__file__).resolve().parents[1] / "test_files"
     return np.load(base_path / "S1_candidate_signal.npy")
 
 
@@ -99,7 +99,7 @@ def blink_df() -> pd.DataFrame:
     Returns:
         pd.DataFrame: Metadata for blink candidates, incl. fitted features.
     """
-    base_path = Path(__file__).resolve().parent
+    base_path = Path(__file__).resolve().parents[1] / "test_files"
     df = pd.read_pickle(base_path / "blink_properties_fits.pkl")
     df.rename(columns=RENAME_MAP, inplace=True)
     assert not df.empty and isinstance(df, pd.DataFrame)

@@ -92,7 +92,7 @@ def candidate_signal() -> np.ndarray:
     Expected:
         numpy.ndarray of shape (T,), where T is the number of time samples.
     """
-    base_path = Path(__file__).resolve().parent
+    base_path = Path(__file__).resolve().parents[1] / "test_files"
     return np.load(base_path / "S1_candidate_signal.npy")
 
 
