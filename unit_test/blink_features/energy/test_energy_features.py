@@ -2,9 +2,9 @@
 Blink feature extraction tests.
 
 This module contains unit tests for per-blink feature computation using
-``mne.Epochs`` derived from the real ``ear_eog_raw.fif`` recording. Using
-recorded data ensures the feature functions operate consistently on realistic
-blink annotations.
+refined blink annotations extracted from the real ``ear_eog_raw.fif``
+recording. Using recorded data ensures the feature functions operate
+consistently on realistic blink annotations.
 
 The tested feature set includes:
 
@@ -37,7 +37,7 @@ import mne
 from pyblinker.blink_features.energy.energy_complexity_features import (
     compute_energy_complexity_features,
 )
-from pyblinker.utils import slice_raw_into_mne_epochs
+from pyblinker.utils import prepare_refined_segments
 
 logger = logging.getLogger(__name__)
 
@@ -55,63 +55,39 @@ class TestEnergyComplexityFeatures(unittest.TestCase):
             / "test_files"
             / "ear_eog_raw.fif"
         )
-        raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.sfreq = raw.info["sfreq"]
-        self.epochs = slice_raw_into_mne_epochs(
-            raw, epoch_len=30.0, blink_label=None, progress_bar=False
-        ).copy().pick("EAR-avg_ear")
-
-    def _blinks_from_epoch(self, epoch_index: int) -> list[dict]:
-        """Extract blink dictionaries from a single epoch."""
-        epoch = self.epochs[epoch_index]
-        signal = epoch.get_data().squeeze()
-        meta = epoch.metadata.iloc[0]
-        onsets = meta["blink_onset"]
-        durations = meta["blink_duration"]
-        onsets = (
-            onsets
-            if isinstance(onsets, list)
-            else ([] if onsets is None else [onsets])
+        segments, refined = prepare_refined_segments(
+            raw_path,
+            "EAR-avg_ear",
+            epoch_len=30.0,
+            keep_epoch_signal=True,
+            progress_bar=False,
         )
-        durations = (
-            durations
-            if isinstance(durations, list)
-            else ([] if durations is None else [durations])
-        )
-        blinks: list[dict] = []
-        for o, d in zip(onsets, durations):
-            start = int(float(o) * self.sfreq)
-            end = int((float(o) + float(d)) * self.sfreq)
-            blinks.append(
-                {
-                    "epoch_index": epoch_index,
-                    "epoch_signal": signal,
-                    "refined_start_frame": start,
-                    "refined_end_frame": end,
-                }
-            )
-        return blinks
+        self.sfreq = segments[0].info["sfreq"]
+        self.refined = refined
+        self.n_epochs = len(segments)
 
     def test_first_epoch_features(self) -> None:
         """Verify energy metrics for the first epoch."""
-        blinks = self._blinks_from_epoch(0)
-        feats = compute_energy_complexity_features(blinks, self.sfreq)
-        logger.debug(f"Energy features epoch 0: {feats}")
+        blinks0 = [b for b in self.refined if b["epoch_index"] == 0]
+        feats = compute_energy_complexity_features(blinks0, self.sfreq)
+        logger.debug("Energy features epoch 0: %s", feats)
         self.assertAlmostEqual(
-            feats["blink_signal_energy_mean"], 0.00999, places=5
+            feats["blink_signal_energy_mean"], 0.0102538, places=5
         )
         self.assertAlmostEqual(
-            feats["blink_line_length_mean"], 0.31655, places=5
+            feats["blink_line_length_mean"], 0.326137, places=5
         )
         self.assertAlmostEqual(
-            feats["blink_velocity_integral_mean"], 0.30872, places=5
+            feats["blink_velocity_integral_mean"], 0.318309, places=5
         )
 
     def test_nan_with_no_blinks(self) -> None:
         """Epoch without blinks should yield NaN for energy mean."""
-        blinks = self._blinks_from_epoch(2)
+        present = {b["epoch_index"] for b in self.refined}
+        empty_epoch = next((i for i in range(self.n_epochs) if i not in present), 0)
+        blinks = [b for b in self.refined if b["epoch_index"] == empty_epoch]
         feats = compute_energy_complexity_features(blinks, self.sfreq)
-        logger.debug(f"Energy features epoch 2: {feats}")
+        logger.debug("Energy features epoch %d: %s", empty_epoch, feats)
         self.assertTrue(math.isnan(feats["blink_signal_energy_mean"]))
         self.assertTrue(math.isnan(feats["blink_line_length_mean"]))
 

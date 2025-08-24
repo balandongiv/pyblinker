@@ -4,12 +4,10 @@ import math
 import unittest
 from pathlib import Path
 
-import mne
-
 from pyblinker.blink_features.energy.aggregate import (
     aggregate_energy_complexity_features,
 )
-from pyblinker.utils import slice_raw_into_mne_epochs
+from pyblinker.utils import prepare_refined_segments
 
 logger = logging.getLogger(__name__)
 
@@ -26,64 +24,29 @@ class TestEnergyComplexityFeaturesAggregate(unittest.TestCase):
             / "test_files"
             / "ear_eog_raw.fif"
         )
-        raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.sfreq = raw.info["sfreq"]
-        self.epochs = (
-            slice_raw_into_mne_epochs(
-                raw, epoch_len=30.0, blink_label=None, progress_bar=False
-            )
-            .copy()
-            .pick("EAR-avg_ear")
+        segments, refined = prepare_refined_segments(
+            raw_path,
+            "EAR-avg_ear",
+            epoch_len=30.0,
+            keep_epoch_signal=True,
+            progress_bar=False,
         )
-        self.n_epochs = len(self.epochs)
-
-    def _collect_blinks(self) -> tuple[list[dict], int]:
-        """Convert epoch metadata to blink dicts.
-
-        Returns
-        -------
-        tuple[list[dict], int]
-            Blink annotations and an example empty epoch index.
-        """
-        blinks: list[dict] = []
-        data = self.epochs.get_data(picks=[0]).squeeze()
-        empty_epoch = None
-        durations = self.epochs.metadata["blink_duration"]
-        for idx, onset in enumerate(self.epochs.metadata["blink_onset"]):
-            signal = data[idx]
-            duration = durations[idx]
-            if onset is None:
-                if empty_epoch is None:
-                    empty_epoch = idx
-                continue
-            onset_list = onset if isinstance(onset, list) else [onset]
-            duration_list = duration if isinstance(duration, list) else [duration]
-            for o, d in zip(onset_list, duration_list):
-                start = int(float(o) * self.sfreq)
-                end = int((float(o) + float(d)) * self.sfreq)
-                blinks.append(
-                    {
-                        "epoch_index": idx,
-                        "epoch_signal": signal,
-                        "refined_start_frame": start,
-                        "refined_end_frame": end,
-                    }
-                )
-        if empty_epoch is None:
-            empty_epoch = 0
-        return blinks, empty_epoch
+        self.sfreq = segments[0].info["sfreq"]
+        self.refined = refined
+        self.n_epochs = len(segments)
 
     def test_aggregate_energy_features(self) -> None:
         """Aggregate per-epoch energy metrics and verify output."""
-        blinks, empty_epoch = self._collect_blinks()
         df = aggregate_energy_complexity_features(
-            blinks, self.sfreq, self.n_epochs
+            self.refined, self.sfreq, self.n_epochs
         )
         logger.debug("Aggregated energy DataFrame: %s", df.to_dict("index"))
+        present = {b["epoch_index"] for b in self.refined}
+        empty_epoch = next((i for i in range(self.n_epochs) if i not in present), 0)
         self.assertEqual(df.shape, (self.n_epochs, 12))
         self.assertTrue(math.isnan(df.loc[empty_epoch, "blink_signal_energy_mean"]))
-        if blinks:
-            idx = blinks[0]["epoch_index"]
+        if self.refined:
+            idx = self.refined[0]["epoch_index"]
             feats = df.loc[idx]
             self.assertGreater(feats["blink_signal_energy_mean"], 0.0)
             self.assertGreater(feats["blink_line_length_mean"], 0.0)
