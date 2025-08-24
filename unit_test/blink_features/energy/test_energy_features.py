@@ -37,7 +37,11 @@ import mne
 from pyblinker.blink_features.energy.energy_complexity_features import (
     compute_energy_complexity_features,
 )
-from pyblinker.utils import prepare_refined_segments
+from pyblinker.utils import (
+    refine_blinks_from_epochs,
+    slice_raw_into_mne_epochs,
+    slice_raw_to_segments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +59,13 @@ class TestEnergyComplexityFeatures(unittest.TestCase):
             / "test_files"
             / "ear_eog_raw.fif"
         )
-        segments, refined = prepare_refined_segments(
-            raw_path,
-            "EAR-avg_ear",
-            epoch_len=30.0,
-            keep_epoch_signal=True,
-            progress_bar=False,
-        )
-        self.sfreq = segments[0].info["sfreq"]
-        self.refined = refined
+        raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
+        self.sfreq = raw.info["sfreq"]
+        self.epochs = slice_raw_into_mne_epochs(
+            raw, epoch_len=30.0, blink_label=None, progress_bar=False
+        ).copy().pick("EAR-avg_ear")
+        segments = slice_raw_to_segments(raw, epoch_len=30.0, progress_bar=False)
+        self.refined = refine_blinks_from_epochs(segments, "EAR-avg_ear")
         self.n_epochs = len(segments)
 
     def test_first_epoch_features(self) -> None:
