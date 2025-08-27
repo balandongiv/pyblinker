@@ -7,7 +7,7 @@ from pathlib import Path
 import mne
 
 from pyblinker.blink_features.morphology import compute_epoch_morphology_features
-from pyblinker.utils import slice_raw_into_mne_epochs
+from refine_annotation.util import slice_raw_into_mne_epochs_refine_annot
 
 from ..utils.helpers import (
     assert_df_has_columns,
@@ -24,7 +24,7 @@ class TestEpochMorphologyFeatures(unittest.TestCase):
     def setUp(self) -> None:  # noqa: D401
         raw_path = PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_raw.fif"
         raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.epochs = slice_raw_into_mne_epochs(
+        self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw, epoch_len=30.0, blink_label=None, progress_bar=False
         )
 
@@ -38,6 +38,9 @@ class TestEpochMorphologyFeatures(unittest.TestCase):
         for idx in range(4):
             self.assertIn(idx, df.index)
             assert_numeric_or_nan(self, df.iloc[idx])
+
+        zero_idx = self.epochs.metadata.index[self.epochs.metadata["n_blinks"] == 0][0]
+        self.assertTrue(df.loc[zero_idx].isna().all())
 
     def test_channel_suffixes(self) -> None:
         """Verify per-channel suffixes are present in column names."""
@@ -55,7 +58,9 @@ class TestEpochMorphologyFeatures(unittest.TestCase):
     def test_missing_metadata(self) -> None:
         """Missing blink metadata results in ValueError."""
         epochs = self.epochs.copy()
-        epochs.metadata = epochs.metadata.drop(columns="blink_onset")
+        epochs.metadata = epochs.metadata.drop(
+            columns=["blink_onset", "blink_duration", "blink_onset_ear", "blink_duration_ear"]
+        )
         with self.assertRaises(ValueError):
             compute_epoch_morphology_features(epochs, picks="EAR-avg_ear")
 
