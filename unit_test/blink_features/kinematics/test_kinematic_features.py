@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 import mne
-import pandas as pd
 
 from pyblinker.blink_features.kinematics import compute_kinematic_features
 from pyblinker.blink_features.kinematics.per_blink import compute_segment_kinematics
@@ -15,7 +14,7 @@ from pyblinker.blink_features.energy.helpers import (
     _segment_to_samples,
     _safe_stats,
 )
-from pyblinker.utils import slice_raw_into_mne_epochs
+from refine_annotation.util import slice_raw_into_mne_epochs_refine_annot
 
 from ..utils.helpers import assert_df_has_columns, assert_numeric_or_nan
 
@@ -29,7 +28,7 @@ class TestKinematicFeatures(unittest.TestCase):
     def setUp(self) -> None:  # noqa: D401
         raw_path = PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_raw.fif"
         raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.epochs = slice_raw_into_mne_epochs(
+        self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw, epoch_len=30.0, blink_label=None, progress_bar=False
         )
 
@@ -37,11 +36,6 @@ class TestKinematicFeatures(unittest.TestCase):
         """DataFrame has expected columns and NaNs for zero-blink epochs."""
         ch = "EEG-E8"
         df = compute_kinematic_features(self.epochs, picks=ch)
-        blink_counts_path = (
-            PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_blink_count_epoch.csv"
-        )
-        blink_counts = pd.read_csv(blink_counts_path, index_col="epoch_id")
-        df = df.join(blink_counts)
 
         metrics = [
             "peak_amp",
@@ -55,12 +49,16 @@ class TestKinematicFeatures(unittest.TestCase):
             "auc",
             "symmetry",
         ]
-        expected_cols = [f"{m}_{s}_{ch}" for m in metrics for s in ("mean", "std", "cv")]
-        assert_df_has_columns(self, df, expected_cols + ["blink_count"])
+        expected_cols = [
+            f"{m}_{s}_{ch}" for m in metrics for s in ("mean", "std", "cv")
+        ]
+        assert_df_has_columns(self, df, expected_cols)
         assert_numeric_or_nan(self, df.iloc[0])
 
-        zero_idx = blink_counts.index[blink_counts["blink_count"] == 0][0]
-        self.assertTrue(df.drop(columns="blink_count").loc[zero_idx].isna().all())
+        zero_idx = self.epochs.metadata.index[
+            self.epochs.metadata["n_blinks"] == 0
+        ][0]
+        self.assertTrue(df.loc[zero_idx].isna().all())
 
     def test_manual_first_epoch(self) -> None:
         """Manual computation for the first epoch matches library output."""
