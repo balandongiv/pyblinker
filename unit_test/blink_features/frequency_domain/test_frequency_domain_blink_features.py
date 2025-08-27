@@ -6,13 +6,12 @@ import unittest
 from pathlib import Path
 
 import mne
-import pandas as pd
 
 from pyblinker.blink_features.frequency_domain import (
     FrequencyDomainBlinkFeatureExtractor,
     aggregate_frequency_domain_features,
 )
-from pyblinker.utils import slice_raw_into_mne_epochs
+from refine_annotation.util import slice_raw_into_mne_epochs_refine_annot
 
 from ..utils.helpers import (
     assert_df_has_columns,
@@ -32,7 +31,7 @@ class TestFrequencyDomainBlinkFeatures(unittest.TestCase):
             PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_raw.fif"
         )
         raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.epochs = slice_raw_into_mne_epochs(
+        self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw, epoch_len=30.0, blink_label=None, progress_bar=False
         )
 
@@ -68,12 +67,12 @@ class TestFrequencyDomainBlinkFeatures(unittest.TestCase):
     def test_no_blink_epochs(self) -> None:
         """Epochs without blinks yield NaN energies."""
         df = aggregate_frequency_domain_features(self.epochs, picks="EAR-avg_ear")
-        blink_counts = pd.read_csv(
-            PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_blink_count_epoch.csv"
-        ).set_index("epoch_id")
-        df = df.join(blink_counts)
-        no_blink_idx = blink_counts[blink_counts["blink_count"] == 0].index[0]
-        self.assertTrue(df.loc[no_blink_idx, [f"wavelet_energy_d{i}" for i in range(1, 5)]].isna().all())
+        no_blink_idx = self.epochs.metadata.index[
+            self.epochs.metadata["blink_onset"].isna()
+        ][0]
+        self.assertTrue(
+            df.loc[no_blink_idx, [f"wavelet_energy_d{i}" for i in range(1, 5)]].isna().all()
+        )
 
 
 if __name__ == "__main__":

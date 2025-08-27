@@ -9,7 +9,7 @@ import mne
 import pandas as pd
 
 from pyblinker.blink_features.frequency_domain import aggregate_frequency_domain_features
-from pyblinker.utils import slice_raw_into_mne_epochs
+from refine_annotation.util import slice_raw_into_mne_epochs_refine_annot
 
 from ..utils.helpers import assert_df_has_columns, assert_numeric_or_nan
 
@@ -25,7 +25,7 @@ class TestFrequencyDomainAggregation(unittest.TestCase):
             PROJECT_ROOT / "unit_test" / "test_files" / "ear_eog_raw.fif"
         )
         raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.epochs = slice_raw_into_mne_epochs(
+        self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw, epoch_len=30.0, blink_label=None, progress_bar=False
         )
 
@@ -41,8 +41,12 @@ class TestFrequencyDomainAggregation(unittest.TestCase):
             self, df, [f"wavelet_energy_d{i}" for i in range(1, 5)] + ["blink_count"]
         )
         assert_numeric_or_nan(self, df.iloc[0])
-        zero_idx = blink_counts.index[blink_counts["blink_count"] == 0][0]
-        self.assertTrue(df.drop(columns="blink_count").loc[zero_idx].isna().all())
+        zero_idx = self.epochs.metadata.index[
+            self.epochs.metadata["blink_onset"].isna()
+        ][0]
+        self.assertTrue(
+            df.drop(columns="blink_count").loc[zero_idx].isna().all()
+        )
 
 
 if __name__ == "__main__":
