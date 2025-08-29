@@ -3,7 +3,6 @@ from pathlib import Path
 
 import mne
 import numpy as np
-import pandas as pd
 
 from pyblinker.utils.epochs import slice_raw_into_epochs
 from pyblinker.blink_features.blink_events import generate_blink_dataframe

@@ -48,7 +48,7 @@ from tqdm import tqdm
 from .default_setting import SCALING_FACTOR
 from ..fitutils import mad
 from ..utils._logging import logger
-from ..ear.blink_epoch_mapper import _get_blink_position_epoching_ear
+# from ..ear.blink_epoch_mapper import _get_blink_position_epoching_ear
 
 
 def _infer_signal_type(
