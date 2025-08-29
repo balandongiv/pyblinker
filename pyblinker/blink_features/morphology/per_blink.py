@@ -44,7 +44,7 @@ def compute_blink_waveform_metrics(segment: np.ndarray, sfreq: float) -> Optiona
     peak = float(segment[peak_idx])
     trough = float(segment[trough_idx])
     peak_to_peak = float(peak - trough)
-    area_abs = float(np.trapz(np.abs(segment), dx=1.0 / sfreq))
+    area_abs = float(np.trapezoid(np.abs(segment), dx=1.0 / sfreq))
 
     rise_time = peak_idx / sfreq
     fall_time = (segment.size - 1 - peak_idx) / sfreq

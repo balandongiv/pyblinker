@@ -1,5 +1,7 @@
-import numpy as np
+import logging
 import warnings
+
+import numpy as np
 import pandas as pd
 
 from .zero_crossing import (
@@ -9,6 +11,9 @@ from .zero_crossing import (
 )
 from .base_left_right import create_left_right_base
 from ..fitutils.line_intersection import lines_intersection
+
+
+logger = logging.getLogger(__name__)
 
 
 class FitBlinks:
@@ -114,10 +119,10 @@ class FitBlinks:
         self.frame_blinks = create_left_right_base(self.candidate_signal, self.df)
 
         if run_fit:
-            warnings.warn(
-                "Running fit() may drop blinks due to NaNs in fit range",
-                RuntimeWarning,
-            )
+            msg = "Running fit() may drop blinks due to NaNs in fit range"
+            logger.warning(msg)
+            if logger.isEnabledFor(logging.DEBUG):
+                warnings.warn(msg, RuntimeWarning)
             self.fit()
 
     def dprocess(self, *, run_fit: bool = True) -> None:

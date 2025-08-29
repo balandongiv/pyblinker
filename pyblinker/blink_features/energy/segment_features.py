@@ -23,7 +23,7 @@ def compute_time_domain_features(signal: np.ndarray, sfreq: float) -> Dict[str, 
     """
     logger.info("Computing time-domain features for segment of length %d", len(signal))
     dt = 1.0 / sfreq
-    energy = float(np.trapz(signal ** 2, dx=dt))
+    energy = float(np.trapezoid(signal ** 2, dx=dt))
 
     if signal.size > 2:
         tkeo = signal[1:-1] ** 2 - signal[:-2] * signal[2:]
@@ -33,7 +33,7 @@ def compute_time_domain_features(signal: np.ndarray, sfreq: float) -> Dict[str, 
 
     line_length = float(np.sum(np.abs(np.diff(signal))))
     velocity = np.gradient(signal, dt)
-    velocity_integral = float(np.trapz(np.abs(velocity), dx=dt))
+    velocity_integral = float(np.trapezoid(np.abs(velocity), dx=dt))
 
     features = {
         "energy": energy,
