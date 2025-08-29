@@ -308,9 +308,11 @@ def find_blinks_epoch(
 
     signal_type = _infer_signal_type(ch_name, ch_type)
     if signal_type == "EAR":
-        blink_positions = _get_blink_position_epoching_ear(
-            flat_signal, params, ch=ch_name, progress_bar=False
-        )
+        pass
+        # We disable EAR support, but this is where it would go
+        # blink_positions = _get_blink_position_epoching_ear(
+        #     flat_signal, params, ch=ch_name, progress_bar=False
+        # )
     else:
         blink_positions = _get_blink_position_epoching(
             flat_signal,
