@@ -94,3 +94,5 @@ For unit testing and remaping, import the following:
 ```python
 from .utils.update_pkl_variables import RENAME_MAP
 ```
+at the end, run
+ruff check .
