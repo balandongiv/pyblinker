@@ -3,7 +3,7 @@
 This module follows the feature definitions from the open-source
 `BLINKER`_ project but provides a minimal implementation focused on the
 duration and amplitude‑velocity metrics included here.
-
+s
 .. _BLINKER: https://github.com/VisLab/EEG-Blinks
 """
 from typing import Iterable, Dict, Any, List, Sequence

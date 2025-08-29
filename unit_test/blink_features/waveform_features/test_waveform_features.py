@@ -1,4 +1,4 @@
-"""Tests for epoch-level waveform feature extraction."""
+"""Tests for epoch-level waveform feature extraction.s"""
 from __future__ import annotations
 
 import unittest

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def neg_amp_vel_ratio_zero(blink: Dict[str, Any], sfreq: float) -> float:
     """Compute negative amplitude‑velocity ratio based on zero landmarks.
-
+s
     The implementation mirrors the method used in the `BLINKER`_ project
     where the downward velocity peak is taken between the blink apex and
     the reopening phase.

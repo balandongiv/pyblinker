@@ -1,4 +1,4 @@
-"""Blink waveform-derived metrics."""
+"""sBlink waveform-derived metrics."""
 
 from .aggregate import aggregate_waveform_features
 from .features.duration_features import duration_base, duration_zero

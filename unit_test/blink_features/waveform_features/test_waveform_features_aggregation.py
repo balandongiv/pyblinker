@@ -1,4 +1,4 @@
-"""Aggregation tests for waveform features."""
+"""Aggregation tests for waveform features.s"""
 from __future__ import annotations
 
 import unittest

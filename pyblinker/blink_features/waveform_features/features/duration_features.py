@@ -36,7 +36,7 @@ def duration_base(blink: Dict[str, Any], sfreq: float) -> float:
         indices inside ``epoch_signal``.
     sfreq : float
         Sampling frequency in Hertz.
-
+s
     Returns
     -------
     float
