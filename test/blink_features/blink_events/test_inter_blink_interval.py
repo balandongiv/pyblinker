@@ -1,4 +1,9 @@
-"""Tests for channel-aware inter-blink interval (IBI) features."""
+"""Tests for channel-aware inter-blink interval (IBI) features.
+
+Epochs are constructed using ``slice_raw_into_mne_epochs_refine_annot`` to
+match the canonical pipeline. This test does not rely on any CSV ground truth
+files.
+"""
 from __future__ import annotations
 
 import unittest
@@ -13,7 +18,7 @@ from pyblinker.blink_features.blink_events.event_features.inter_blink_interval i
     inter_blink_interval_epochs,
 )
 from pyblinker.blink_features.blink_events.event_features.blink_count import blink_count
-from pyblinker.utils import slice_raw_into_mne_epochs
+from pyblinker.utils.refine_util import slice_raw_into_mne_epochs_refine_annot
 from test.blink_features.utils.helpers import assert_df_has_columns
 
 logger = logging.getLogger(__name__)
@@ -31,7 +36,7 @@ class TestInterBlinkInterval(unittest.TestCase):
             / "ear_eog_raw.fif"
         )
         raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
-        self.epochs = slice_raw_into_mne_epochs(
+        self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw, epoch_len=30.0, blink_label=None, progress_bar=False
         )
 
