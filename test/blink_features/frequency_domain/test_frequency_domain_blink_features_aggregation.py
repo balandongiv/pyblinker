@@ -31,21 +31,27 @@ class TestFrequencyDomainAggregation(unittest.TestCase):
 
     def test_merge_blink_counts(self) -> None:
         """Joined DataFrame includes blink counts and energies."""
-        df = aggregate_frequency_domain_features(self.epochs, picks="EAR-avg_ear")
+        df = aggregate_frequency_domain_features(
+            self.epochs, picks="EAR-avg_ear", progress_bar=False
+        )
         blink_counts_path = (
             PROJECT_ROOT / "test" / "test_files" / "ear_eog_blink_count_epoch.csv"
         )
         blink_counts = pd.read_csv(blink_counts_path, index_col="epoch_id")
         df = df.join(blink_counts)
         assert_df_has_columns(
-            self, df, [f"wavelet_energy_d{i}" for i in range(1, 5)] + ["blink_count"]
+            self,
+            df,
+            ["ep"]
+            + [f"wavelet_energy_d{i}" for i in range(1, 5)]
+            + ["blink_count"],
         )
-        assert_numeric_or_nan(self, df.iloc[0])
+        assert_numeric_or_nan(self, df.drop(columns=["ep"]).iloc[0])
         zero_idx = self.epochs.metadata.index[
             self.epochs.metadata["blink_onset"].isna()
         ][0]
         self.assertTrue(
-            df.drop(columns="blink_count").loc[zero_idx].isna().all()
+            df.drop(columns=["ep", "blink_count"]).loc[zero_idx].isna().all()
         )
 
 

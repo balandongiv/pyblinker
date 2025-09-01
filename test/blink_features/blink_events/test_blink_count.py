@@ -74,15 +74,10 @@ class TestBlinkCount(unittest.TestCase):
     def test_counts(self) -> None:
         """Verify blink counts against CSV, ignoring rows 31 and 55."""
         df = blink_count(self.epochs)
-        assert_df_has_columns(self, df, ["blink_onset", "blink_duration", "blink_count"])
+        assert_df_has_columns(self, df, ["ep", "blink_count"])
         self.assertEqual(len(df), len(self.epochs))
-
-        # passthrough metadata check
         pd.testing.assert_series_equal(
-            df["blink_onset"], self.epochs.metadata["blink_onset"], check_names=False
-        )
-        pd.testing.assert_series_equal(
-            df["blink_duration"], self.epochs.metadata["blink_duration"], check_names=False
+            df["ep"], pd.Series(self.epochs.metadata.index, name="ep"), check_names=False
         )
 
         # Align and drop known mismatched rows
@@ -110,6 +105,23 @@ class TestBlinkCount(unittest.TestCase):
                 continue
             self.assertEqual(df.loc[idx, "blink_count"], expected_val)
             self.assertTrue(np.isfinite(df.loc[idx, "blink_count"]))
+
+    def test_modality_specific_columns(self) -> None:
+        """Blink counting with modality-specific metadata columns."""
+        epochs = self.epochs.copy()
+        epochs.metadata = epochs.metadata.drop(
+            columns=["blink_onset_eeg", "blink_duration_eeg"], errors="ignore"
+        ).rename(
+            columns={"blink_onset": "blink_onset_eeg", "blink_duration": "blink_duration_eeg"}
+        )
+        df = blink_count(epochs)
+        assert_df_has_columns(self, df, ["ep", "blink_count"])
+        pd.testing.assert_series_equal(
+            df["ep"], pd.Series(epochs.metadata.index, name="ep"), check_names=False
+        )
+        expected = self.expected_counts.drop(self.allowed_exception_rows, errors="ignore")
+        computed = df["blink_count"].drop(self.allowed_exception_rows, errors="ignore")
+        pd.testing.assert_series_equal(computed, expected, check_names=False)
 
 
 if __name__ == "__main__":

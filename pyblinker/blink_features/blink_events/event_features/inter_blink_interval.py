@@ -145,6 +145,11 @@ def compute_ibi_features(blinks: List[Dict[str, int]], sfreq: float) -> Dict[str
     }
 
 
+def _infer_modality(channel: str) -> str:
+    """Infer modality label (e.g., ``"eeg"``) from a channel name."""
+    return channel.split("-", 1)[0].lower()
+
+
 def inter_blink_interval_epochs(
     epochs: mne.Epochs, picks: str | Iterable[str]
 ) -> pd.DataFrame:
@@ -153,19 +158,21 @@ def inter_blink_interval_epochs(
     Parameters
     ----------
     epochs : mne.Epochs
-        Epoch object whose metadata contains ``blink_onset`` and
-        ``blink_duration`` columns.
+        Epoch object whose metadata contains blink onset and duration
+        information. If modality-specific columns such as ``blink_onset_eeg``
+        are present they are used; otherwise the generic ``blink_onset`` and
+        ``blink_duration`` columns are expected.
     picks : str or iterable of str
-        Channel name(s) for which IBI columns are created. The same IBI values
-        are used for all channels because blink timing is not channel-specific
-        in the metadata yet.
+        Channel name(s) for which IBI columns are created. The modality of each
+        channel determines which blink onset/duration columns are used when
+        available.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame indexed like ``epochs`` with passthrough metadata columns and
-        one ``ibi_<channel>`` column per requested channel.  Epochs with fewer
-        than two blinks receive ``NaN``.
+        DataFrame indexed like ``epochs`` with a leading ``ep`` column and one
+        ``ibi_<channel>`` column per requested channel. Epochs with fewer than
+        two blinks receive ``NaN``.
 
     Raises
     ------
@@ -179,33 +186,72 @@ def inter_blink_interval_epochs(
     consecutive blinks is returned. If a single blink or no blink is present,
     ``NaN`` is assigned.
     """
+
     picks_list = normalize_picks(picks)
     require_channels(epochs, picks_list)
     metadata = epochs.metadata
-    if metadata is None or not {"blink_onset", "blink_duration"}.issubset(metadata.columns):
-        raise ValueError("Epochs.metadata must contain 'blink_onset' and 'blink_duration' columns")
+    if metadata is None:
+        raise ValueError("Epochs.metadata must contain blink information")
 
-    ibis: List[float] = []
-    for onset, duration in zip(metadata["blink_onset"], metadata["blink_duration"]):
-        onsets = (
-            onset
-            if isinstance(onset, list)
-            else ([] if onset is None or pd.isna(onset) else [float(onset)])
-        )
-        durations = (
-            duration
-            if isinstance(duration, list)
-            else ([] if duration is None or pd.isna(duration) else [float(duration)])
-        )
-        if len(onsets) < 2:
-            ibis.append(float("nan"))
-            continue
-        ends = [o + d for o, d in zip(onsets, durations)]
-        intervals = [onsets[i + 1] - ends[i] for i in range(len(onsets) - 1)]
-        ibis.append(float(np.mean(intervals)) if intervals else float("nan"))
+    index = metadata.index if isinstance(metadata, pd.DataFrame) else pd.RangeIndex(len(epochs))
+    df = pd.DataFrame(index=index)
+    df.insert(0, "ep", index.to_numpy())
 
-    df = metadata[["blink_onset", "blink_duration"]].copy()
+    logger.info(
+        "Computing inter-blink intervals for %d epochs and channels %s",
+        len(epochs),
+        picks_list,
+    )
+
     for ch in picks_list:
+        modality = _infer_modality(ch)
+        onset_col = f"blink_onset_{modality}"
+        duration_col = f"blink_duration_{modality}"
+        if onset_col not in metadata or duration_col not in metadata:
+            logger.debug(
+                "Falling back to generic blink columns for channel %s", ch
+            )
+            onset_col = "blink_onset"
+            duration_col = "blink_duration"
+        else:
+            logger.debug(
+                "Using modality-specific columns '%s' and '%s' for channel %s",
+                onset_col,
+                duration_col,
+                ch,
+            )
+        if onset_col not in metadata or duration_col not in metadata:
+            missing = [
+                col
+                for col in [onset_col, duration_col]
+                if col not in metadata
+            ]
+            raise ValueError(
+                "Epochs.metadata missing required blink columns: "
+                + ", ".join(sorted(missing))
+            )
+
+        ibis: List[float] = []
+        for onset, duration in zip(metadata[onset_col], metadata[duration_col]):
+            onsets = (
+                onset
+                if isinstance(onset, list)
+                else ([] if onset is None or pd.isna(onset) else [float(onset)])
+            )
+            durations = (
+                duration
+                if isinstance(duration, list)
+                else ([] if duration is None or pd.isna(duration) else [float(duration)])
+            )
+            if len(onsets) < 2:
+                ibis.append(float("nan"))
+                continue
+            ends = [o + d for o, d in zip(onsets, durations)]
+            intervals = [onsets[i + 1] - ends[i] for i in range(len(onsets) - 1)]
+            ibis.append(float(np.mean(intervals)) if intervals else float("nan"))
+
         df[f"ibi_{ch}"] = ibis
+
     logger.debug("Computed channel-wise IBI DataFrame shape: %s", df.shape)
+    logger.info("Finished computing IBI DataFrame")
     return df

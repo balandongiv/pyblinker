@@ -37,16 +37,19 @@ class TestFrequencyDomainBlinkFeatures(unittest.TestCase):
 
     def test_schema_and_rows(self) -> None:
         """DataFrame has expected columns and indexing for first epochs."""
-        df = aggregate_frequency_domain_features(self.epochs, picks="EAR-avg_ear")
+        df = aggregate_frequency_domain_features(
+            self.epochs, picks="EAR-avg_ear", progress_bar=False
+        )
         assert_df_has_columns(
             self,
             df,
-            [f"wavelet_energy_d{i}" for i in range(1, 5)],
+            ["ep"] + [f"wavelet_energy_d{i}" for i in range(1, 5)],
         )
         self.assertEqual(len(df), len(self.epochs))
         for idx in range(4):
             self.assertIn(idx, df.index)
-            assert_numeric_or_nan(self, df.iloc[idx])
+            self.assertEqual(df.iloc[idx]["ep"], idx)
+            assert_numeric_or_nan(self, df.iloc[idx].drop(labels="ep"))
 
     def test_requires_mne_object(self) -> None:
         """Extractor must have epochs or raw defined."""
@@ -58,15 +61,19 @@ class TestFrequencyDomainBlinkFeatures(unittest.TestCase):
         """Warn and drop Nyquist-touching levels when fs < 30 Hz."""
         epochs = self.epochs.copy().resample(20.0, npad="auto")
         with with_userwarning(self):
-            df = aggregate_frequency_domain_features(epochs, picks="EAR-avg_ear")
+            df = aggregate_frequency_domain_features(
+                epochs, picks="EAR-avg_ear", progress_bar=False
+            )
         self.assertTrue(df["wavelet_energy_d1"].isna().all())
         assert_df_has_columns(
-            self, df, [f"wavelet_energy_d{i}" for i in range(2, 5)]
+            self, df, ["ep"] + [f"wavelet_energy_d{i}" for i in range(2, 5)]
         )
 
     def test_no_blink_epochs(self) -> None:
         """Epochs without blinks yield NaN energies."""
-        df = aggregate_frequency_domain_features(self.epochs, picks="EAR-avg_ear")
+        df = aggregate_frequency_domain_features(
+            self.epochs, picks="EAR-avg_ear", progress_bar=False
+        )
         no_blink_idx = self.epochs.metadata.index[
             self.epochs.metadata["blink_onset"].isna()
         ][0]

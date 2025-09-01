@@ -1,6 +1,6 @@
 """Blink count feature utilities."""
 
-from typing import List, Dict, Union, Optional
+from typing import Dict, List, Optional, Union
 import logging
 import numpy as np
 import pandas as pd
@@ -65,15 +65,17 @@ def blink_count(epochs: mne.Epochs) -> pd.DataFrame:
     Parameters
     ----------
     epochs : mne.Epochs
-        Epoch object whose metadata includes ``blink_onset`` and
-        ``blink_duration`` columns.
+        Epoch object whose metadata contains blink onset and duration
+        information. If modality-specific columns such as ``blink_onset_eeg``
+        exist they are used; otherwise the generic ``blink_onset`` and
+        ``blink_duration`` columns are expected.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame indexed like ``epochs`` with passthrough metadata columns
-        (``blink_onset`` and ``blink_duration``) and a new ``blink_count``
-        column. ``blink_count`` is ``0`` when an epoch contains no blinks.
+        DataFrame indexed like ``epochs`` with a leading ``ep`` column and a
+        ``blink_count`` column. ``blink_count`` is ``0`` when an epoch contains
+        no blinks.
 
     Raises
     ------
@@ -82,18 +84,46 @@ def blink_count(epochs: mne.Epochs) -> pd.DataFrame:
     """
     logger.info("Counting blinks across %d epochs", len(epochs))
     metadata = epochs.metadata
-    if metadata is None or not {"blink_onset", "blink_duration"}.issubset(metadata.columns):
-        raise ValueError("Epochs.metadata must contain 'blink_onset' and 'blink_duration' columns")
+    if metadata is None:
+        raise ValueError("Epochs.metadata must contain blink information")
 
-    df = metadata[["blink_onset", "blink_duration"]].copy()
+    index = metadata.index if isinstance(metadata, pd.DataFrame) else pd.RangeIndex(len(epochs))
+    df = pd.DataFrame(index=index)
+    df.insert(0, "ep", index.to_numpy())
+
+    onset_col = "blink_onset"
+    duration_col = "blink_duration"
+    for col in metadata.columns:
+        if col.startswith("blink_onset_"):
+            suffix = col[len("blink_onset_"):]
+            dur_col = f"blink_duration_{suffix}"
+            if dur_col in metadata.columns:
+                onset_col = col
+                duration_col = dur_col
+                logger.debug(
+                    "Using modality-specific blink columns '%s' and '%s'", onset_col, duration_col
+                )
+                break
+    else:
+        logger.debug("Using generic blink columns '%s' and '%s'", onset_col, duration_col)
+
+    if onset_col not in metadata or duration_col not in metadata:
+        missing = [col for col in [onset_col, duration_col] if col not in metadata]
+        raise ValueError(
+            "Epochs.metadata missing required blink columns: " + ", ".join(sorted(missing))
+        )
 
     def _count(entry: object) -> int:
-        if isinstance(entry, list):
-            return len(entry)
-        if entry is None or pd.isna(entry):
+        if entry is None:
+            return 0
+        if isinstance(entry, (list, np.ndarray, pd.Series)):
+            arr = pd.Series(entry)
+            return int((~pd.isna(arr)).sum())
+        if pd.isna(entry):
             return 0
         return 1
 
-    df["blink_count"] = metadata["blink_onset"].apply(_count).astype(float)
+    df["blink_count"] = metadata[onset_col].apply(_count).astype(float)
     logger.debug("Blink counts per epoch: %s", df["blink_count"].tolist())
+    logger.info("Finished counting blinks")
     return df
