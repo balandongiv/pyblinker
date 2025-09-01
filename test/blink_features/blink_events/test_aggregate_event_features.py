@@ -70,9 +70,12 @@ class TestAggregateBlinkFeatures(unittest.TestCase):
         """Compare aggregated features to CSV, ignoring rows 31 and 55."""
         picks = ["EEG-E8", "EOG-EEG-eog_vert_left", "EAR-avg_ear"]
         df = aggregate_blink_event_features(self.epochs, picks=picks)
-        expected_cols = ["blink_total", "blink_rate"] + [f"ibi_{p}" for p in picks]
+        expected_cols = ["ep", "blink_total", "blink_rate"] + [f"ibi_{p}" for p in picks]
         assert_df_has_columns(self, df, expected_cols)
         self.assertEqual(len(df), len(self.epochs))
+        pd.testing.assert_series_equal(
+            df["ep"], pd.Series(self.epochs.metadata.index, name="ep"), check_names=False
+        )
 
         # Compare blink totals against CSV, excluding mismatched rows
         expected = self.expected_counts.drop(

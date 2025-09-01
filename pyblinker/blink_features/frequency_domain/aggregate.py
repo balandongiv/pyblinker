@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Sequence, Dict, List
+from typing import Dict, List, Sequence
 import logging
 import warnings
 
 import mne
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from .features import _compute_wavelet_energies
 from ..energy.helpers import extract_blink_windows, segment_to_samples
@@ -31,7 +32,12 @@ class FrequencyDomainBlinkFeatureExtractor:
             return float(self.raw.info["sfreq"])
         raise ValueError("Neither self.epochs nor self.raw defined (need MNE object).")
 
-    def compute(self, picks: str | Sequence[str] | None = None) -> pd.DataFrame:
+    def compute(
+        self,
+        picks: str | Sequence[str] | None = None,
+        *,
+        progress_bar: bool = True,
+    ) -> pd.DataFrame:
         """Compute DWT energies for each epoch.
 
         Parameters
@@ -40,11 +46,14 @@ class FrequencyDomainBlinkFeatureExtractor:
             Channel name(s) to include. When multiple channels are supplied
             they are averaged before feature extraction. ``None`` uses all
             channels.
+        progress_bar : bool, optional
+            Display a progress bar during epoch processing. Defaults to
+            ``True``.
 
         Returns
         -------
         pandas.DataFrame
-            DataFrame indexed like ``epochs`` with columns
+            DataFrame indexed like ``epochs`` with columns ``ep`` and
             ``wavelet_energy_d1`` .. ``wavelet_energy_d4``.
 
         Warns
@@ -83,7 +92,12 @@ class FrequencyDomainBlinkFeatureExtractor:
         )
 
         records: List[Dict[str, float]] = []
-        for ei in range(n_epochs):
+        for ei in tqdm(
+            range(n_epochs),
+            desc="Wavelet energies",
+            unit="epoch",
+            disable=not progress_bar,
+        ):
             metadata_row = (
                 self.epochs.metadata.iloc[ei]
                 if isinstance(self.epochs.metadata, pd.DataFrame)
@@ -111,15 +125,36 @@ class FrequencyDomainBlinkFeatureExtractor:
             index=index,
             columns=[f"wavelet_energy_d{i}" for i in range(1, 5)],
         )
+        df.insert(0, "ep", df.index.to_numpy())
         logger.debug("Frequency-domain feature DataFrame shape: %s", df.shape)
         return df
 
 
 def aggregate_frequency_domain_features(
-    epochs: mne.Epochs, picks: str | Sequence[str] | None = None
+    epochs: mne.Epochs,
+    picks: str | Sequence[str] | None = None,
+    *,
+    progress_bar: bool = True,
 ) -> pd.DataFrame:
-    """Convenience function to compute frequency-domain blink features."""
+    """Convenience function to compute frequency-domain blink features.
+
+    Parameters
+    ----------
+    epochs : mne.Epochs
+        Epochs instance containing the blink data.
+    picks : str | list of str | None, optional
+        Channel name(s) to include. When multiple channels are provided they
+        are averaged before feature extraction. ``None`` uses all channels.
+    progress_bar : bool, optional
+        Display a progress bar during epoch processing. Defaults to ``True``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with an ``ep`` column denoting the epoch index and
+        wavelet-energy features.
+    """
 
     extractor = FrequencyDomainBlinkFeatureExtractor(epochs=epochs)
-    return extractor.compute(picks=picks)
+    return extractor.compute(picks=picks, progress_bar=progress_bar)
 
