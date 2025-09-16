@@ -27,6 +27,7 @@ from .utils.blink_metadata import (
     attach_blink_metadata,
     _sample_windows_from_metadata,
 )
+from .utils.modality import infer_modality
 
 from .blinker.fit_blink import FitBlinks
 from .blink_features.waveform_features.extract_blink_properties import BlinkProperties
@@ -139,7 +140,7 @@ def compute_from_refined_epochs(
     for ei, ci, ch in iterator:
         metadata_row = safe_metadata_row(epochs.metadata, ei)
         signal = data[ei, ci]
-        mod = infer_modality_from_channel(ch)
+        mod = infer_modality(ch)
 
         sample_windows = _sample_windows_from_metadata(
             metadata_row, ch, sfreq, n_times, ei
@@ -232,7 +233,7 @@ def compute_from_raw_segments(
             signal = raw.get_data(picks=ch)[0]
             rows = seg_rows.copy()
             rows["channel"] = ch
-            rows["modality"] = infer_modality_from_channel(ch)
+            rows["modality"] = infer_modality(ch)
             props = fit_and_extract_properties(signal, rows, sfreq, params, run_fit)
             if props is None or props.empty:
                 continue
@@ -270,18 +271,6 @@ def build_epoch_channel_tasks(
 def safe_metadata_row(metadata: pd.DataFrame | None, ei: int) -> pd.Series:
     """Safely access a metadata row; return empty Series if metadata is ``None``."""
     return metadata.iloc[ei] if isinstance(metadata, pd.DataFrame) else pd.Series(dtype=float)
-
-
-def infer_modality_from_channel(ch_name: str) -> str:
-    """Infer modality label (``'eeg'``, ``'eog'``, or ``'ear'``) from a channel name."""
-    lower = ch_name.lower()
-    if "eeg" in lower:
-        return "eeg"
-    if "eog" in lower:
-        return "eog"
-    return "ear"
-
-
 def build_candidate_rows_for_epoch_channel(
     signal: np.ndarray,
     sample_windows: Sequence[slice],

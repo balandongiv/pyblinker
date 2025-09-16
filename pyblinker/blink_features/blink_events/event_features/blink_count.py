@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import mne
 from pyblinker.logging import get_logger
+from pyblinker.utils.modality import infer_modality
 
 from .utils import normalize_picks
 
@@ -59,13 +60,6 @@ def blink_count_epoch(
     else:
         logger.error("Unsupported type passed to blink_count_epoch: %s", type(blinks))
         raise TypeError(f"Unsupported input type: {type(blinks)}")
-
-
-def _infer_modality(channel: str) -> str:
-    """Infer modality label (e.g., ``"eeg"``) from a channel name."""
-    return channel.split("-", 1)[0].lower()
-
-
 def blink_count(
     epochs: mne.Epochs, picks: str | Iterable[str] | None = None
 ) -> pd.DataFrame:
@@ -110,7 +104,7 @@ def blink_count(
     picks_list = normalize_picks(picks) if picks is not None else []
     modalities: List[str] = []
     for ch in picks_list:
-        mod = _infer_modality(ch)
+        mod = infer_modality(ch)
         if mod not in modalities:
             modalities.append(mod)
 

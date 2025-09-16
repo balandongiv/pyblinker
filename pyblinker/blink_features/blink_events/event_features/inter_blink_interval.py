@@ -1,6 +1,7 @@
 """Inter-blink interval based features."""
 from typing import Dict, List, Sequence, Iterable
 from pyblinker.logging import get_logger
+from pyblinker.utils.modality import infer_modality
 
 import numpy as np
 import pandas as pd
@@ -143,13 +144,6 @@ def compute_ibi_features(blinks: List[Dict[str, int]], sfreq: float) -> Dict[str
         "ibi_permutation_entropy": pe,
         "ibi_hurst_exponent": hurst,
     }
-
-
-def _infer_modality(channel: str) -> str:
-    """Infer modality label (e.g., ``"eeg"``) from a channel name."""
-    return channel.split("-", 1)[0].lower()
-
-
 def inter_blink_interval_epochs(
     epochs: mne.Epochs, picks: str | Iterable[str] | None = None
 ) -> pd.DataFrame:
@@ -240,7 +234,7 @@ def inter_blink_interval_epochs(
         df["ibi"] = ibis
     else:
         for ch in picks_list:
-            modality = _infer_modality(ch)
+            modality = infer_modality(ch)
             onset_col = f"blink_onset_{modality}"
             duration_col = f"blink_duration_{modality}"
             if onset_col not in metadata or duration_col not in metadata:
