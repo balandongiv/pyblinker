@@ -31,10 +31,7 @@ from .utils.blink_metadata import (
 from .blinker.fit_blink import FitBlinks
 from .blink_features.waveform_features.extract_blink_properties import BlinkProperties
 from .blink_features.blink_events.blink_dataframe import left_right_zero_crossing
-from .blink_features.blink_events.event_features.utils import (
-    normalize_picks,
-    require_channels,
-)
+from .utils.channel_picks import normalize_picks, require_channels
 
 logger = get_logger(__name__)
 

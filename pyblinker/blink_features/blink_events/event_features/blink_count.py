@@ -6,7 +6,7 @@ import pandas as pd
 import mne
 from pyblinker.logging import get_logger
 
-from .utils import normalize_picks
+from pyblinker.utils.channel_picks import normalize_picks
 
 
 logger = get_logger(__name__)

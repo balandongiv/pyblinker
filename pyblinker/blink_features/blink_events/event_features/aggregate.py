@@ -10,7 +10,7 @@ import pandas as pd
 
 from .blink_count import blink_count
 from .inter_blink_interval import inter_blink_interval_epochs
-from .utils import normalize_picks, require_channels
+from pyblinker.utils.channel_picks import normalize_picks, require_channels
 
 logger = get_logger(__name__)
 

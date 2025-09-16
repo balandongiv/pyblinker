@@ -1,16 +1,17 @@
-"""Utility helpers for blink event features."""
+"""Utilities for normalizing and validating channel selections."""
 from __future__ import annotations
-from pyblinker.logging import get_logger
 
-from typing import Iterable, Sequence, List
+from typing import Iterable, Sequence
 
 import mne
+
+from pyblinker.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def normalize_picks(picks: str | Iterable[str]) -> List[str]:
-    """Normalize channel picks to a list.
+def normalize_picks(picks: str | Iterable[str]) -> list[str]:
+    """Normalize channel picks to a list of names.
 
     Parameters
     ----------
