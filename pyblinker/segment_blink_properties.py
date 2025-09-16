@@ -15,8 +15,8 @@ Refactor goals achieved in this version:
 from __future__ import annotations
 from pyblinker.logging import get_logger
 
-from typing import Sequence, Dict, Any, List, Iterable, Tuple
 import itertools
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -31,10 +31,14 @@ from .utils.blink_metadata import (
 from .blinker.fit_blink import FitBlinks
 from .blink_features.waveform_features.extract_blink_properties import BlinkProperties
 from .blink_features.blink_events.blink_dataframe import left_right_zero_crossing
+from .blink_features.blink_events.event_features.utils import (
+    normalize_picks,
+    require_channels,
+)
 
 logger = get_logger(__name__)
 
- # ------------------------------ Public API ------------------------------------
+# ------------------------------ Public API ------------------------------------
 
 
 def compute_segment_blink_properties(
@@ -78,12 +82,14 @@ def compute_segment_blink_properties(
     ValueError
         If ``data`` is a sequence of raw segments and ``blink_df`` is ``None``.
     """
+    picks = normalize_picks(channel)
+
     if isinstance(data, mne.Epochs):
         logger.info("Running refined-epoch blink property computation")
         blink_epochs = compute_from_refined_epochs(
             epochs=data,
             params=params,
-            channel=channel,
+            picks=picks,
             progress_bar=progress_bar,
             run_fit=run_fit,
         )
@@ -99,7 +105,7 @@ def compute_segment_blink_properties(
         segments=data,
         blink_df=blink_df,
         params=params,
-        channel=channel,
+        picks=picks,
         run_fit=run_fit,
         progress_bar=progress_bar,
     )
@@ -111,26 +117,25 @@ def compute_segment_blink_properties(
 def compute_from_refined_epochs(
     epochs: mne.Epochs,
     params: Dict[str, Any],
-    channel: str | Sequence[str],
+    picks: Sequence[str],
     progress_bar: bool,
     run_fit: bool,
 ) -> mne.Epochs:
     """Compute blink properties when given refined :class:`mne.Epochs`."""
-    ch_names = resolve_channels(epochs.ch_names, channel)
-    validate_channels_exist(epochs.ch_names, ch_names)
+    require_channels(epochs, picks)
 
     sfreq = float(epochs.info["sfreq"])
     n_epochs = len(epochs)
-    n_times = epochs.get_data(picks=[ch_names[0]]).shape[-1] if n_epochs else 0
-    data = epochs.get_data(picks=ch_names)
+    n_times = epochs.get_data(picks=[picks[0]]).shape[-1] if n_epochs else 0
+    data = epochs.get_data(picks=picks)
 
-    tasks = build_epoch_channel_tasks(n_epochs, ch_names)
+    tasks = build_epoch_channel_tasks(n_epochs, picks)
 
     records: List[pd.DataFrame] = []
     logger.info(
         "Computing blink properties for %d epochs across %d channels",
         n_epochs,
-        len(ch_names),
+        len(picks),
     )
 
     iterator: Iterable[Tuple[int, int, str]] = tqdm(
@@ -168,13 +173,13 @@ def compute_from_refined_epochs(
         records.append(props)
 
     if not records:
-        info = mne.create_info(ch_names, sfreq)
+        info = mne.create_info(picks, sfreq)
         empty_md = pd.DataFrame()
-        return mne.EpochsArray(np.zeros((0, len(ch_names), 1)), info, metadata=empty_md)
+        return mne.EpochsArray(np.zeros((0, len(picks), 1)), info, metadata=empty_md)
 
     result = pd.concat(records, ignore_index=True)
-    info = mne.create_info(ch_names, sfreq)
-    dummy = np.zeros((len(result), len(ch_names), 1), dtype=float)
+    info = mne.create_info(picks, sfreq)
+    dummy = np.zeros((len(result), len(picks), 1), dtype=float)
     return mne.EpochsArray(dummy, info, metadata=result)
 
 
@@ -185,7 +190,7 @@ def compute_from_raw_segments(
     segments: Sequence[mne.io.BaseRaw],
     blink_df: pd.DataFrame,
     params: Dict[str, Any],
-    channel: str | Sequence[str],
+    picks: Sequence[str],
     run_fit: bool,
     progress_bar: bool,
 ) -> pd.DataFrame:
@@ -199,7 +204,7 @@ def compute_from_raw_segments(
         DataFrame describing blink windows with ``seg_id`` column.
     params
         Parameter dictionary forwarded to :class:`BlinkProperties`.
-    channel
+    picks
         Channel name(s) used for property extraction.
     run_fit
         Whether to execute the fitting stage.
@@ -214,9 +219,8 @@ def compute_from_raw_segments(
     if not segments:
         return pd.DataFrame()
 
-    ch_names = resolve_channels(segments[0].ch_names, channel)
     for raw in segments:
-        validate_channels_exist(raw.ch_names, ch_names)
+        require_channels(raw, picks)
 
     sfreq = float(segments[0].info["sfreq"])
     records: List[pd.DataFrame] = []
@@ -228,7 +232,7 @@ def compute_from_raw_segments(
         seg_rows = blink_df[blink_df["seg_id"] == seg_id]
         if seg_rows.empty:
             continue
-        for ch in ch_names:
+        for ch in picks:
             signal = raw.get_data(picks=ch)[0]
             rows = seg_rows.copy()
             rows["channel"] = ch
@@ -243,18 +247,6 @@ def compute_from_raw_segments(
             records.append(props)
 
     return pd.concat(records, ignore_index=True) if records else pd.DataFrame()
-
-
-def resolve_channels(available: Sequence[str], channel: str | Sequence[str]) -> List[str]:
-    """Normalize the channel input into a list of channel names."""
-    return [channel] if isinstance(channel, str) else list(channel)
-
-
-def validate_channels_exist(available: Sequence[str], requested: Sequence[str]) -> None:
-    """Raise if any requested channels are not present."""
-    missing = [ch for ch in requested if ch not in available]
-    if missing:
-        raise ValueError(f"Channels not found: {missing}")
 
 
 def build_epoch_channel_tasks(

@@ -27,23 +27,27 @@ def normalize_picks(picks: str | Iterable[str]) -> List[str]:
     return list(picks)
 
 
-def require_channels(epochs: mne.Epochs, picks: Sequence[str]) -> None:
-    """Validate that all requested channels exist in the epochs.
+def require_channels(
+    data: mne.Epochs | mne.io.BaseRaw,
+    picks: Sequence[str],
+) -> None:
+    """Validate that all requested channels exist in the provided MNE object.
 
     Parameters
     ----------
-    epochs : mne.Epochs
-        Epochs whose channel names are checked.
+    data : mne.Epochs or mne.io.BaseRaw
+        Object whose channel names are checked.
     picks : sequence of str
         Channel names to validate.
 
     Raises
     ------
     ValueError
-        If any channel in ``picks`` is missing from ``epochs``.
+        If any channel in ``picks`` is missing from ``data``.
     """
     logger.info("Validating channel picks: %s", picks)
-    missing = [p for p in picks if p not in epochs.info["ch_names"]]
+    missing = [p for p in picks if p not in data.info["ch_names"]]
     if missing:
-        raise ValueError(f"Channels not found in epochs: {', '.join(missing)}")
+        raise ValueError(f"Channels not found: {', '.join(missing)}")
     logger.debug("All channels present")
+
