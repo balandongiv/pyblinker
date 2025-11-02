@@ -64,42 +64,22 @@ function process_fit_blinks()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
-    project_root = fileparts(fileparts(this_dir));  % go up twice
+    paths = sharedMigrationPaths(struct( ...
+        'DataDirCandidates', {{'migration_data_dir', 'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    data_dir_default   = fullfile(project_root, 'migration_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (overrides defaults if present)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        output_dir = main_folder;
-    else
-        output_dir = output_dir_default;
-    end
-
-    if exist('migration_data_dir', 'var') && isfolder(migration_data_dir)
-        data_dir = migration_data_dir;
-    else
-        data_dir = data_dir_default;
-    end
+    data_dir = paths.data_dir;
+    output_dir = paths.output_dir;
+    config_vars = paths.config_vars;
 
     % ---------------------------------------------------------------------
     % 3. Initialize EEGLAB silently (if path known)
     % ---------------------------------------------------------------------
-    if exist('eeglab_path', 'var') && isfolder(eeglab_path)
+    eeglab_path = normalize_config_path(config_vars, 'eeglab_path');
+    if ~isempty(eeglab_path) && isfolder(eeglab_path)
         addpath(genpath(eeglab_path));
         eeglab nogui;
     else
@@ -125,12 +105,14 @@ function process_fit_blinks()
     % ---------------------------------------------------------------------
     % 5. Load input data
     % ---------------------------------------------------------------------
-    input_data = load(input_file);
+    input_data = loadMigrationFixture(input_file, ...
+        {'candidateSignals', 'params', 'signalType'}, 'STEP 1biii input fixture');
     candidateSignals = input_data.candidateSignals;
     params           = input_data.params;
     signalType       = input_data.signalType;
 
-    expected_data   = load(gold_output_file);
+    expected_data = loadMigrationFixture(gold_output_file, {'blinks'}, ...
+        'STEP 1biii expected fixture');
     expected_blinks = expected_data.blinks;
 
     % ---------------------------------------------------------------------
@@ -141,15 +123,17 @@ function process_fit_blinks()
     % ---------------------------------------------------------------------
     % 7. Compare computed results with the reference gold output
     % ---------------------------------------------------------------------
-    [areStructsEqual, diffDetails] = ...
-        compareblinkpropertiesstructure(blinks.signalData, expected_blinks.signalData);
+    comparison = compareMigrationResults(blinks.signalData, expected_blinks.signalData, ...
+        @compareblinkpropertiesstructure, 'Blink signal data');
 
-    if areStructsEqual
+    if comparison.isEqual
         fprintf('\nBlink structures match the MATLAB gold output ✅\n');
     else
         fprintf('\nBlink structures DO NOT match the MATLAB gold output ❌\n');
-        disp('Differences found:');
-        disp(diffDetails);
+        if ~isempty(comparison.details)
+            disp('Differences found:');
+            disp(comparison.details);
+        end
     end
 
     % Save computed output (for reference or Python comparison)
@@ -157,4 +141,26 @@ function process_fit_blinks()
         'process_fit_blinks_computed_output.mat');
     save(computed_output_file, 'blinks', 'params');
     fprintf('Computed output saved to: %s\n', computed_output_file);
+end
+
+function value = normalize_config_path(config_vars, field_name)
+%NORMALIZE_CONFIG_PATH Extract a char path from config variables.
+    value = '';
+    if ~isfield(config_vars, field_name)
+        return;
+    end
+
+    candidate = config_vars.(field_name);
+    if isa(candidate, 'string') && isscalar(candidate)
+        candidate = char(candidate);
+    elseif iscell(candidate) && ~isempty(candidate)
+        candidate = candidate{1};
+        if isa(candidate, 'string') && isscalar(candidate)
+            candidate = char(candidate);
+        end
+    end
+
+    if ischar(candidate)
+        value = candidate;
+    end
 end

@@ -52,32 +52,14 @@ function process_compute_blink_properties_step2c()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
-    project_root = fileparts(fileparts(this_dir));  % go up 2 levels
+    paths = sharedMigrationPaths(struct( ...
+        'DataDirCandidates', {{'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    data_dir_default   = fullfile(project_root, 'migration_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (overrides defaults if present)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    % decide where to read/write
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        data_dir = main_folder;
-    else
-        data_dir = data_dir_default;
-    end
+    data_dir = paths.data_dir;
 
     % ---------------------------------------------------------------------
     % 3. Define input/output fixture paths
@@ -101,7 +83,9 @@ function process_compute_blink_properties_step2c()
     % ---------------------------------------------------------------------
     % 4. Load gold/reference data
     % ---------------------------------------------------------------------
-    gold_data = load(gold_file);
+    gold_data = loadMigrationFixture(gold_file, ...
+        {'blinkProps', 'peaksPosVelZero', 'peaksPosVelBase'}, ...
+        'STEP 2c expected fixture');
     blinkProps_gold        = gold_data.blinkProps;
     peaksPosVelZero_gold   = gold_data.peaksPosVelZero;
     peaksPosVelBase_gold   = gold_data.peaksPosVelBase;
@@ -109,7 +93,9 @@ function process_compute_blink_properties_step2c()
     % ---------------------------------------------------------------------
     % 5. Load input data for computeBlinkProperties
     % ---------------------------------------------------------------------
-    in_data       = load(input_file);
+    in_data = loadMigrationFixture(input_file, ...
+        {'blinkFits', 'signalData', 'params', 'srate', 'blinkVelocity', 'peaks'}, ...
+        'STEP 2c input fixture');
     blinkFits     = in_data.blinkFits;
     signalData    = in_data.signalData;
     params        = in_data.params;
@@ -129,25 +115,44 @@ function process_compute_blink_properties_step2c()
     % 7. Compare structures / matrices against gold
     % ---------------------------------------------------------------------
     fprintf('\n--- STEP 2c: compare blinkProps ---\n');
-    [areStructsEqual_blinkProps, diffDetails_blinkProps] = ...
-        compareblinkpropertiesstructure(blinkProps, blinkProps_gold);
+    comparison_blinkProps = compareMigrationResults(blinkProps, blinkProps_gold, ...
+        @compareblinkpropertiesstructure, 'blinkProps');
 
-    if areStructsEqual_blinkProps
+    if comparison_blinkProps.isEqual
         fprintf('blinkProps ✅ matches gold output\n');
     else
         fprintf('blinkProps ❌ does NOT match gold output\n');
-        disp('Differences:');
-        disp(diffDetails_blinkProps);
+        if ~isempty(comparison_blinkProps.details)
+            disp('Differences:');
+            disp(comparison_blinkProps.details);
+        end
     end
 
     fprintf('\n--- STEP 2c: compare peaksPosVelZero ---\n');
-    result_peaksPosVelZero = compare_matrices(peaksPosVelZero, ...
-                                              peaksPosVelZero_gold);
-   
-    % 
-    % fprintf('\n--- STEP 2c: compare peaksPosVelBase ---\n');
-    result_peaksPosVelBase = compare_matrices(peaksPosVelBase, ...
-                                              peaksPosVelBase_gold);
+    comparison_peaksPosVelZero = compareMigrationResults(peaksPosVelZero, ...
+        peaksPosVelZero_gold, @matrix_comparator, 'peaksPosVelZero');
+
+    if comparison_peaksPosVelZero.isEqual
+        fprintf('peaksPosVelZero ✅ matches gold output\n');
+    else
+        fprintf('peaksPosVelZero ❌ does NOT match gold output\n');
+        if ~isempty(comparison_peaksPosVelZero.details)
+            disp(comparison_peaksPosVelZero.details);
+        end
+    end
+
+    fprintf('\n--- STEP 2c: compare peaksPosVelBase ---\n');
+    comparison_peaksPosVelBase = compareMigrationResults(peaksPosVelBase, ...
+        peaksPosVelBase_gold, @matrix_comparator, 'peaksPosVelBase');
+
+    if comparison_peaksPosVelBase.isEqual
+        fprintf('peaksPosVelBase ✅ matches gold output\n');
+    else
+        fprintf('peaksPosVelBase ❌ does NOT match gold output\n');
+        if ~isempty(comparison_peaksPosVelBase.details)
+            disp(comparison_peaksPosVelBase.details);
+        end
+    end
 
 
     % ---------------------------------------------------------------------
@@ -158,4 +163,10 @@ function process_compute_blink_properties_step2c()
     % save(computed_out_file, ...
     %     'blinkProps', 'peaksPosVelZero', 'peaksPosVelBase');
     % fprintf('\nComputed results saved to: %s\n', computed_out_file);
+end
+
+function [is_equal, details] = matrix_comparator(actual, expected)
+%MATRIX_COMPARATOR Wrap compare_matrices to produce boolean + detail output.
+    details = compare_matrices(actual, expected);
+    is_equal = strcmp(details.Status, 'Comparison Results') && isempty(details.Details);
 end

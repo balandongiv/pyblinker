@@ -38,32 +38,14 @@ function process_apply_pavr_restriction_step2d()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
-    project_root = fileparts(fileparts(this_dir));  % go up two levels
+    paths = sharedMigrationPaths(struct( ...
+        'DataDirCandidates', {{'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    data_dir_default   = fullfile(project_root, 'migration_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (overrides defaults if present)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    % Decide actual data directory
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        data_dir = main_folder;
-    else
-        data_dir = data_dir_default;
-    end
+    data_dir = paths.data_dir;
 
     % ---------------------------------------------------------------------
     % 3. Build input file path (fixture produced by previous steps)
@@ -74,12 +56,13 @@ function process_apply_pavr_restriction_step2d()
     % ---------------------------------------------------------------------
     % 4. Load input data (what we will pass to applyPAVRRestriction)
     % ---------------------------------------------------------------------
-    in_data    = load(input_file);
+    in_data = loadMigrationFixture(input_file, ...
+        {'signalData', 'params', 'blinkProps', 'blinkFits'}, ...
+        'STEP 2d input fixture');
     signalData = in_data.signalData;
     params     = in_data.params;
     blinkProps = in_data.blinkProps;
     blinkFits  = in_data.blinkFits;
-    g=1
     % ---------------------------------------------------------------------
     % 5. Run the actual function under test
     % ---------------------------------------------------------------------

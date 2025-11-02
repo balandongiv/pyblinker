@@ -38,37 +38,21 @@ function process_extract_blink_statistics_step3()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
-    project_root = fileparts(fileparts(this_dir));  % go up two levels
+    paths = sharedMigrationPaths(struct( ...
+        'DataDirCandidates', {{'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    data_dir_default   = fullfile(project_root, 'migration_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (overrides defaults if present)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    % decide actual data directory
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        data_dir = main_folder;
-    else
-        data_dir = data_dir_default;
-    end
+    data_dir = paths.data_dir;
+    config_vars = paths.config_vars;
 
     % ---------------------------------------------------------------------
     % 3. Initialize EEGLAB silently (if path known)
     % ---------------------------------------------------------------------
-    if exist('eeglab_path', 'var') && isfolder(eeglab_path)
+    eeglab_path = normalize_config_path(config_vars, 'eeglab_path');
+    if ~isempty(eeglab_path) && isfolder(eeglab_path)
         addpath(genpath(eeglab_path));
         eeglab nogui;
     else
@@ -86,7 +70,9 @@ function process_extract_blink_statistics_step3()
     input_file = fullfile(data_dir, 'step3_data_input_extractBlinkStatistic.mat');
     assert(isfile(input_file), 'Input .mat not found: %s', input_file);
 
-    in_data          = load(input_file);
+    in_data = loadMigrationFixture(input_file, ...
+        {'blinks', 'blinkFits', 'blinkProperties', 'params'}, ...
+        'STEP 3 input fixture');
     blinks           = in_data.blinks;
     blinkFits        = in_data.blinkFits;
     blinkProperties  = in_data.blinkProperties;
@@ -108,4 +94,26 @@ function process_extract_blink_statistics_step3()
     writetable(blinkTable, xlsx_file);
 
     fprintf('Blink statistics extracted and written to:\n  %s\n', xlsx_file);
+end
+
+function value = normalize_config_path(config_vars, field_name)
+%NORMALIZE_CONFIG_PATH Extract a char path from config variables.
+    value = '';
+    if ~isfield(config_vars, field_name)
+        return;
+    end
+
+    candidate = config_vars.(field_name);
+    if isa(candidate, 'string') && isscalar(candidate)
+        candidate = char(candidate);
+    elseif iscell(candidate) && ~isempty(candidate)
+        candidate = candidate{1};
+        if isa(candidate, 'string') && isscalar(candidate)
+            candidate = char(candidate);
+        end
+    end
+
+    if ischar(candidate)
+        value = candidate;
+    end
 end

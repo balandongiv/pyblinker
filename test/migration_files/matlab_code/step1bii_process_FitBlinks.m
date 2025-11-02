@@ -46,37 +46,15 @@ function process_fit_blinks_step1bii()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
-    project_root = fileparts(fileparts(this_dir));  % go up twice
+    paths = sharedMigrationPaths(struct( ...
+        'DataDirCandidates', {{'migration_data_dir', 'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    data_dir_default   = fullfile(project_root, 'migration_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (to override defaults)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        output_dir = main_folder;
-    else
-        output_dir = output_dir_default;
-    end
-
-    if exist('migration_data_dir', 'var') && isfolder(migration_data_dir)
-        data_dir = migration_data_dir;
-    else
-        data_dir = data_dir_default;
-    end
+    data_dir = paths.data_dir;
+    output_dir = paths.output_dir;
 
     % ---------------------------------------------------------------------
     % 3. Define input/output file paths
@@ -90,7 +68,8 @@ function process_fit_blinks_step1bii()
     % ---------------------------------------------------------------------
     % 4. Load data and run FitBlinks
     % ---------------------------------------------------------------------
-    input_data = load(input_file);  % loads candidateSignal, blinkPositions
+    input_data = loadMigrationFixture(input_file, ...
+        {'candidateSignal', 'blinkPositions'}, 'STEP 1bii input fixture');
     candidateSignal = input_data.candidateSignal;
     blinkPositions  = input_data.blinkPositions;
 
@@ -98,21 +77,24 @@ function process_fit_blinks_step1bii()
     blinkFits = fitBlinks(candidateSignal, blinkPositions);
 
     % Load MATLAB gold output
-    output_data = load(output_file);
-    blinkFits_expected = output_data.blinkFits;
+    expected_data = loadMigrationFixture(output_file, {'blinkFits'}, ...
+        'STEP 1bii expected fixture');
+    blinkFits_expected = expected_data.blinkFits;
 
     % ---------------------------------------------------------------------
     % 5. Compare computed results with the reference gold output
     % ---------------------------------------------------------------------
-    [areStructsEqual, diffDetails] = ...
-        compareblinkpropertiesstructure(blinkFits, blinkFits_expected);
+    comparison = compareMigrationResults(blinkFits, blinkFits_expected, ...
+        @compareblinkpropertiesstructure, 'Blink fit structures');
 
-    if areStructsEqual
+    if comparison.isEqual
         fprintf('\nBlink fit structures match the MATLAB gold output ✅\n');
     else
         fprintf('\nBlink fit structures DO NOT match the MATLAB gold output ❌\n');
-        disp('Differences found:');
-        disp(diffDetails);
+        if ~isempty(comparison.details)
+            disp('Differences found:');
+            disp(comparison.details);
+        end
     end
 
     % ---------------------------------------------------------------------

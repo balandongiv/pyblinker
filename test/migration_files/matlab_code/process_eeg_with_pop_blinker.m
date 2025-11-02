@@ -63,51 +63,25 @@ function process_eeg_with_pop_blinker()
 % -------------------------------------------------------------------------
 
     % ---------------------------------------------------------------------
-    % 1. Resolve paths relative to THIS file
+    % 1. Resolve paths & config via shared helper
     % ---------------------------------------------------------------------
-    this_file = mfilename('fullpath');
-    this_dir  = fileparts(this_file);
+    paths = sharedMigrationPaths(struct( ...
+        'DefaultDataSubfolder', 'test_files', ...
+        'DefaultOutputSubfolder', 'migration_files', ...
+        'DataDirCandidates', {{'data_dir', 'main_folder'}}, ...
+        'OutputDirCandidates', {{'main_folder'}}, ...
+        'EnsureOutputDir', true));
 
-    % We are typically in:
-    %   .../pyblinker/test/migration_files/matlab_code
-    % and we want:
-    %   .../pyblinker/test
-    project_root = fileparts(fileparts(this_dir));  % go up twice
-
-    data_dir_default   = fullfile(project_root, 'test_files');
-    output_dir_default = fullfile(project_root, 'migration_files');
-
-    % Make sure default output folder exists
-    if ~exist(output_dir_default, 'dir')
-        mkdir(output_dir_default);
-    end
-
-    % ---------------------------------------------------------------------
-    % 2. Optionally load config.m (overrides defaults if present)
-    % ---------------------------------------------------------------------
-    config_file = fullfile(this_dir, 'config.m');
-    if exist(config_file, 'file')
-        run(config_file);
-    end
-
-    % Decide output dir
-    if exist('main_folder', 'var') && isfolder(main_folder)
-        output_dir = main_folder;
-    else
-        output_dir = output_dir_default;
-    end
-
-    % If config defined a custom data dir, use it; otherwise default
-    if exist('data_dir', 'var') && isfolder(data_dir)
-        data_dir_use = data_dir;
-    else
-        data_dir_use = data_dir_default;
-    end
+    data_dir_use = paths.data_dir;
+    output_dir = paths.output_dir;
+    config_vars = paths.config_vars;
 
     % ---------------------------------------------------------------------
     % 3. Initialize EEGLAB silently (if path known)
     % ---------------------------------------------------------------------
-    if exist('eeglab_path', 'var') && isfolder(eeglab_path)
+    eeglab_path = extract_config_path(config_vars, 'eeglab_path');
+
+    if ~isempty(eeglab_path) && isfolder(eeglab_path)
         addpath(genpath(eeglab_path));
         eeglab nogui;
     else
@@ -148,7 +122,8 @@ function process_eeg_with_pop_blinker()
     % ---------------------------------------------------------------------
     % 6. Build Blinker params (explicit, migration-friendly)
     % ---------------------------------------------------------------------
-    if exist('blinker_dir', 'var') && isfolder(blinker_dir)
+    blinker_dir = extract_config_path(config_vars, 'blinker_dir');
+    if ~isempty(blinker_dir) && isfolder(blinker_dir)
         params = build_blinker_params(blinker_dir);
     else
         params = build_blinker_params(output_dir);
@@ -170,6 +145,28 @@ function process_eeg_with_pop_blinker()
     end
 end
 
+
+function value = extract_config_path(config_vars, field_name)
+%EXTRACT_CONFIG_PATH Safely obtain a string path from config variables.
+    value = '';
+    if ~isfield(config_vars, field_name)
+        return;
+    end
+
+    candidate = config_vars.(field_name);
+    if isa(candidate, 'string') && isscalar(candidate)
+        candidate = char(candidate);
+    elseif iscell(candidate) && ~isempty(candidate)
+        candidate = candidate{1};
+        if isa(candidate, 'string') && isscalar(candidate)
+            candidate = char(candidate);
+        end
+    end
+
+    if ischar(candidate)
+        value = candidate;
+    end
+end
 
 function params = build_blinker_params(blinker_dir)
 % BUILD_BLINKER_PARAMS  Construct an explicit Blinker params struct.

@@ -38,16 +38,21 @@
 % You should have received a copy of the GNU General Public License
 % along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-function [EEG, com, blinks, blinkFits, blinkProperties, blinkStatistics, ...
+[EEG, com, blinks, blinkFits, blinkProperties, blinkStatistics, ...
     params] = pop_blinker()
-% Load configuration
-config; % Load paths from config.m
+% Resolve configuration & directories via shared helper
+paths = sharedMigrationPaths(struct( ...
+    'DataDirCandidates', {{'main_folder'}}, ...
+    'UseOutputDir', false));
+
+data_dir = paths.data_dir;
 
 % Define the input file path dynamically
-input_file = fullfile(main_folder, 'step0_data_input_singleChannel_popblinker.mat');
+input_file = fullfile(data_dir, 'step0_data_input_singleChannel_popblinker.mat');
 
 % Load the data
-data = load(input_file);  % Loads blinkComp, blinkPositions
+data = loadMigrationFixture(input_file, {'EEG', 'params'}, ...
+    'STEP 0 input fixture');
 EEG = data.EEG;
 params = data.params;
 [blinks, params] = extractBlinksEEG(EEG, params);
