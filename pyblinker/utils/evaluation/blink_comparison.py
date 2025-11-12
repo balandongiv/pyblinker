@@ -85,6 +85,64 @@ def compute_alignments_and_metrics(
         ground_truth_df=ground_truth_df,
         tolerance_samples=tolerance_samples,
     )
+
+    amplitude_column = "max_amplitude"
+    if amplitude_column in detected_df.columns and amplitude_column in ground_truth_df.columns:
+        detected_amplitudes = detected_df[amplitude_column].to_numpy(dtype=float, copy=False)
+        ground_truth_amplitudes = ground_truth_df[amplitude_column].to_numpy(dtype=float, copy=False)
+
+        amplitude_rtol = 1e-3
+        amplitude_atol = 5e-10
+
+        def _is_comparable(value: float) -> bool:
+            return np.isfinite(value)
+
+        refined_alignments: list[similarity.Alignment] = []
+        for alignment in alignments:
+            det_idx = alignment.detected_idx
+            gt_idx = alignment.ground_truth_idx
+
+            if det_idx is None or gt_idx is None:
+                refined_alignments.append(alignment)
+                continue
+
+            det_amp = detected_amplitudes[int(det_idx)] if int(det_idx) < detected_amplitudes.size else np.nan
+            gt_amp = ground_truth_amplitudes[int(gt_idx)] if int(gt_idx) < ground_truth_amplitudes.size else np.nan
+
+            if not (_is_comparable(det_amp) and _is_comparable(gt_amp)):
+                refined_alignments.append(alignment)
+                continue
+
+            amplitudes_are_close = np.isclose(
+                det_amp,
+                gt_amp,
+                rtol=amplitude_rtol,
+                atol=amplitude_atol,
+            )
+
+            if amplitudes_are_close and alignment.is_match(tolerance_samples):
+                refined_alignments.append(alignment)
+                continue
+
+            refined_alignments.append(
+                similarity.Alignment(
+                    ground_truth_idx=gt_idx,
+                    detected_idx=None,
+                    start_diff=None,
+                    end_diff=None,
+                )
+            )
+            refined_alignments.append(
+                similarity.Alignment(
+                    ground_truth_idx=None,
+                    detected_idx=det_idx,
+                    start_diff=None,
+                    end_diff=None,
+                )
+            )
+
+        alignments = refined_alignments
+
     metrics = similarity.compute_alignment_metrics(alignments, tolerance_samples)
     return alignments, metrics
 
