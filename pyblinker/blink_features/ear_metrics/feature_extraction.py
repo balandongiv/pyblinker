@@ -521,16 +521,16 @@ def _prepare_table_features(
         and not isinstance(value, (dict, list, tuple, np.ndarray))
     }
 
-    legacy_metrics: Dict[str, float | str | bool] = {}
+    selected_threshold_scalars: Dict[str, float | str | bool] = {}
     selected_value = selection.get("value")
     if isinstance(threshold_metrics, Mapping) and selected_value in threshold_metrics:
         for key, value in threshold_metrics[selected_value].items():
             if not isinstance(value, (dict, list, tuple, np.ndarray)):
-                legacy_metrics[key] = value
+                selected_threshold_scalars[key] = value
 
     combined = {
         **scalar_features,
-        **legacy_metrics,
+        **selected_threshold_scalars,
         **flattened_thresholds,
         "selected_threshold_value": selection.get("value"),
         "threshold_selection_mode": selection.get("mode"),
