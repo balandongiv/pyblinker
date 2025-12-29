@@ -497,15 +497,17 @@ def _select_threshold(
 def _prepare_table_features(
     *,
     features: Mapping[str, object],
-    start_sample: int,
-    end_sample: int,
-    sfreq: float,
 ) -> Dict[str, float | str | bool]:
-    """Flatten and filter features for DataFrame construction."""
+    """Flatten and filter features for DataFrame construction.
+
+    Notes
+    -----
+    The returned mapping intentionally excludes selected-threshold scalars so they can
+    be surfaced separately from generic table metrics.
+    """
 
     flattened_thresholds = features.get("threshold_metrics_flat", {})
     selection = features.get("selected_threshold", {})
-    threshold_metrics = features.get("thresholds", {})
 
     scalar_features = {
         key: value
@@ -521,6 +523,22 @@ def _prepare_table_features(
         and not isinstance(value, (dict, list, tuple, np.ndarray))
     }
 
+    return {
+        **scalar_features,
+        **flattened_thresholds,
+        "selected_threshold_value": selection.get("value"),
+        "threshold_selection_mode": selection.get("mode"),
+        "threshold_selection_reason": selection.get("reason"),
+    }
+
+
+def _extract_selected_threshold_scalars(
+    *,
+    threshold_metrics: Mapping[float, Mapping[str, float | str | bool]] | object,
+    selection: Mapping[str, object],
+) -> Dict[str, float | str | bool]:
+    """Return scalar metrics tied to the chosen threshold for legacy compatibility."""
+
     selected_threshold_scalars: Dict[str, float | str | bool] = {}
     selected_value = selection.get("value")
     if isinstance(threshold_metrics, Mapping) and selected_value in threshold_metrics:
@@ -528,18 +546,7 @@ def _prepare_table_features(
             if not isinstance(value, (dict, list, tuple, np.ndarray)):
                 selected_threshold_scalars[key] = value
 
-    combined = {
-        **scalar_features,
-        **selected_threshold_scalars,
-        **flattened_thresholds,
-        "selected_threshold_value": selection.get("value"),
-        "threshold_selection_mode": selection.get("mode"),
-        "threshold_selection_reason": selection.get("reason"),
-    }
-    combined["time_under_threshold_fraction"] = combined.get("closed_fraction", float("nan"))
-    refined_duration = float((end_sample - start_sample) / sfreq)
-    combined["refined_duration"] = max(refined_duration, 0.0)
-    return combined
+    return selected_threshold_scalars
 
 
 def compute_blink_features(
@@ -583,7 +590,11 @@ def compute_blink_features(
         - ``threshold_metrics_flat``: flattened per-threshold metrics for easy tabular use.
         - ``selected_threshold``: selection metadata (value, mode, reason, candidates).
         - ``selected_threshold_metrics``: metrics tied to the chosen threshold.
-        - ``table_features``: flattened, scalar-only metrics ready for DataFrame rows.
+        - ``table_features``: flattened, scalar-only metrics ready for DataFrame rows
+          (excluding selected-threshold scalars).
+        - ``selected_threshold_scalars``: scalar metrics from the chosen threshold
+          for legacy column compatibility.
+        - ``refined_duration``: per-blink duration in seconds.
     """
 
     start_sample = int(max(0, start_sample))
@@ -636,12 +647,16 @@ def compute_blink_features(
         "blink_type_original": blink_type,
     }
     features.update(base_features)
-    features["table_features"] = _prepare_table_features(
-        features=features,
-        start_sample=start_sample,
-        end_sample=end_sample,
-        sfreq=sfreq,
+    features["table_features"] = _prepare_table_features(features=features)
+    selected_scalars = _extract_selected_threshold_scalars(
+        threshold_metrics=threshold_metrics, selection=selection
     )
+    selected_scalars["time_under_threshold_fraction"] = selected_scalars.get(
+        "closed_fraction", float("nan")
+    )
+    features["selected_threshold_scalars"] = selected_scalars
+    refined_duration = float((end_sample - start_sample) / sfreq)
+    features["refined_duration"] = max(refined_duration, 0.0)
 
     return features
 
@@ -715,7 +730,13 @@ class EARBlinkFeatureExtractor:
                 feature_config=self.feature_config,
                 plot_threshold=self.plot_threshold,
             )
-            records.append({**row, **features["table_features"]})
+            combined = {
+                **row,
+                **features["table_features"],
+                **features.get("selected_threshold_scalars", {}),
+                "refined_duration": features.get("refined_duration"),
+            }
+            records.append(combined)
 
         df = pd.DataFrame.from_records(records)
         logger.info("Computed EAR features for %s blinks", len(df))
