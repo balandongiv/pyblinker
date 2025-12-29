@@ -497,7 +497,6 @@ def _select_threshold(
 def _prepare_table_features(
     *,
     features: Mapping[str, object],
-    selected_metrics: Mapping[str, object],
     start_sample: int,
     end_sample: int,
     sfreq: float,
@@ -506,6 +505,7 @@ def _prepare_table_features(
 
     flattened_thresholds = features.get("threshold_metrics_flat", {})
     selection = features.get("selected_threshold", {})
+    threshold_metrics = features.get("thresholds", {})
 
     scalar_features = {
         key: value
@@ -521,16 +521,16 @@ def _prepare_table_features(
         and not isinstance(value, (dict, list, tuple, np.ndarray))
     }
 
-    scalar_selected = {
-        key: value
-        for key, value in selected_metrics.items()
-        if not isinstance(value, (dict, list, tuple, np.ndarray))
-    }
+    legacy_metrics: Dict[str, float | str | bool] = {}
+    selected_value = selection.get("value")
+    if isinstance(threshold_metrics, Mapping) and selected_value in threshold_metrics:
+        for key, value in threshold_metrics[selected_value].items():
+            if not isinstance(value, (dict, list, tuple, np.ndarray)):
+                legacy_metrics[key] = value
 
     combined = {
         **scalar_features,
-        **scalar_selected,
-        **{f"selected_{key}": value for key, value in scalar_selected.items()},
+        **legacy_metrics,
         **flattened_thresholds,
         "selected_threshold_value": selection.get("value"),
         "threshold_selection_mode": selection.get("mode"),
@@ -638,7 +638,6 @@ def compute_blink_features(
     features.update(base_features)
     features["table_features"] = _prepare_table_features(
         features=features,
-        selected_metrics=selected_metrics,
         start_sample=start_sample,
         end_sample=end_sample,
         sfreq=sfreq,

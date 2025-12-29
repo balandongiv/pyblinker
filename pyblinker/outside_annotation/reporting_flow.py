@@ -77,6 +77,26 @@ def _compute_overlay_indices(
     return overlay_start, overlay_end
 
 
+def _determine_report_threshold(results: pd.DataFrame, threshold_value: float | None) -> tuple[float | None, str | None]:
+    """Return a single representative threshold for the entire report."""
+
+    if threshold_value is not None:
+        return float(threshold_value), "user"
+
+    if "selected_threshold_value" in results.columns:
+        selected_values = pd.to_numeric(results["selected_threshold_value"], errors="coerce").dropna()
+        if not selected_values.empty:
+            mode_value = float(selected_values.mode().iat[0])
+            return mode_value, "auto"
+
+    if "threshold_value" in results.columns:
+        threshold_values = pd.to_numeric(results["threshold_value"], errors="coerce").dropna()
+        if not threshold_values.empty:
+            return float(threshold_values.mode().iat[0]), "auto"
+
+    return None, None
+
+
 def build_refined_blink_report(
     *,
     results: pd.DataFrame,
@@ -128,7 +148,8 @@ def build_refined_blink_report(
     mark_threshold_crossings : bool, optional
         If True, mark threshold crossings and minimum with low-opacity markers.
     threshold_value : float | None, optional
-        Explicit threshold to draw; if None, uses per-row selected threshold when available.
+        Explicit threshold to draw; if None, uses a single representative threshold derived
+        from the results.
     output_path : Path | None, optional
         Destination for the generated HTML report; directories are created as needed.
     pad_seconds : float, optional
@@ -159,6 +180,10 @@ def build_refined_blink_report(
     zero_crossing_failures = None
     if "zero_crossing_found" in results.columns:
         zero_crossing_failures = int((~results["zero_crossing_found"].astype(bool)).sum())
+
+    representative_threshold, threshold_origin = _determine_report_threshold(
+        results, threshold_value
+    )
 
     for idx, row in enumerate(rows):
         left = int(getattr(row, "refined_left_zero", getattr(row, "left_zero", 0)))
@@ -221,12 +246,11 @@ def build_refined_blink_report(
         ax.axvline(left_time, color="C1", linestyle="--", label="Left threshold crossing")
         ax.axvline(right_time, color="C2", linestyle="--", label="Right threshold crossing")
 
-        if threshold_value is not None:
-            chosen_threshold = threshold_value
-            threshold_origin = "user"
-        else:
+        chosen_threshold = representative_threshold
+        plot_threshold_origin = threshold_origin
+        if chosen_threshold is None:
             chosen_threshold = getattr(row, "selected_threshold_value", None)
-            threshold_origin = getattr(row, "threshold_selection_mode", None)
+            plot_threshold_origin = getattr(row, "threshold_selection_mode", None)
             if chosen_threshold is None:
                 chosen_threshold = getattr(row, "threshold_value", None)
         if chosen_threshold is not None:
@@ -236,7 +260,7 @@ def build_refined_blink_report(
                 linestyle=":",
                 lw=1.0,
                 label=f"Threshold = {float(chosen_threshold):.3f}"
-                + (f" ({threshold_origin})" if threshold_origin else ""),
+                + (f" ({plot_threshold_origin})" if plot_threshold_origin else ""),
             )
 
         # Mark key landmarks directly on the plot for clarity.
@@ -373,7 +397,7 @@ def build_refined_blink_report(
             f"Segment {start}–{end} ({(end - start) / sfreq:.3f}s)."
         )
         if chosen_threshold is not None:
-            suffix = f" ({threshold_origin})" if threshold_origin else ""
+            suffix = f" ({plot_threshold_origin})" if plot_threshold_origin else ""
             caption += f" Threshold value: {float(chosen_threshold):.3f}{suffix}."
         report.add_figure(
             fig=fig,
@@ -394,30 +418,25 @@ def build_refined_blink_report(
         summary_rows.append((f"Skipped ({reason})", skipped_count))
     if zero_crossing_failures is not None:
         summary_rows.append(("Zero-crossing failures", zero_crossing_failures))
-    if threshold_value is not None:
-        summary_rows.append(("Plot threshold (user-provided)", f"{float(threshold_value):.3f}"))
-    else:
-        if {"selected_threshold_value", "threshold_selection_mode"} <= set(results.columns):
-            selected_values = pd.to_numeric(
-                results["selected_threshold_value"], errors="coerce"
-            ).dropna()
-            if not selected_values.empty:
-                summary_rows.append(
-                    ("Plot threshold (auto mode)", f"{float(selected_values.mode().iat[0]):.3f}")
-                )
-            mode_counts = results["threshold_selection_mode"].astype(str).value_counts()
-            if not mode_counts.empty:
-                summary_rows.append(
-                    ("Threshold selection modes", "; ".join(f"{k}: {v}" for k, v in mode_counts.items()))
-                )
-        if "threshold_selection_reason" in results.columns:
-            reasons = results["threshold_selection_reason"].dropna().astype(str)
-            if not reasons.empty:
-                reason_counts = reasons.value_counts()
-                top_reason = reason_counts.index[0]
-                summary_rows.append(
-                    ("Threshold selection rationale", f"{top_reason} ({int(reason_counts.iloc[0])}x)")
-                )
+    if representative_threshold is not None:
+        label = (
+            "Plot threshold (user-provided)" if threshold_origin == "user" else "Plot threshold (auto mode)"
+        )
+        summary_rows.append((label, f"{float(representative_threshold):.3f}"))
+    if {"selected_threshold_value", "threshold_selection_mode"} <= set(results.columns):
+        mode_counts = results["threshold_selection_mode"].astype(str).value_counts()
+        if not mode_counts.empty:
+            summary_rows.append(
+                ("Threshold selection modes", "; ".join(f"{k}: {v}" for k, v in mode_counts.items()))
+            )
+    if "threshold_selection_reason" in results.columns:
+        reasons = results["threshold_selection_reason"].dropna().astype(str)
+        if not reasons.empty:
+            reason_counts = reasons.value_counts()
+            top_reason = reason_counts.index[0]
+            summary_rows.append(
+                ("Threshold selection rationale", f"{top_reason} ({int(reason_counts.iloc[0])}x)")
+            )
 
     summary_html = """<table style='border-collapse: collapse;'>
     <thead><tr><th style='text-align:left;padding:4px;'>Metric</th>
