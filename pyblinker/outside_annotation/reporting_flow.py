@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -82,6 +83,32 @@ def _determine_report_threshold(results: pd.DataFrame, threshold_value: float | 
 
     if threshold_value is not None:
         return float(threshold_value), "user"
+
+    status_pattern = re.compile(r"^threshold_(?P<value>[^_]+)_ear_threshold_status$")
+    candidates: list[tuple[float, int, int]] = []
+    for col in results.columns:
+        match = status_pattern.match(col)
+        if not match:
+            continue
+        try:
+            theta = float(match.group("value"))
+        except ValueError:
+            continue
+        status_series = results[col].astype(str)
+        ok_count = int((status_series == "ok").sum())
+        found_by_col = f"threshold_{match.group('value')}_ear_threshold_found_by"
+        found_count = 0
+        if found_by_col in results.columns:
+            found_count = int(results[found_by_col].notna().sum())
+        candidates.append((theta, ok_count, found_count))
+
+    if candidates:
+        candidates.sort(key=lambda item: (-item[1], -item[2], item[0]))
+        top_ok = candidates[0][1]
+        best_candidates = [c for c in candidates if c[1] == top_ok]
+        best_found = max(c[2] for c in best_candidates)
+        best = [c for c in best_candidates if c[2] == best_found][0]
+        return float(best[0]), "auto_flat"
 
     if "selected_threshold_value" in results.columns:
         selected_values = pd.to_numeric(results["selected_threshold_value"], errors="coerce").dropna()
