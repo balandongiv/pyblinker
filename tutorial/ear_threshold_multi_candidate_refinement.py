@@ -74,7 +74,7 @@ def main() -> None:
         feature_config=feature_config,
         plot_threshold=None,
     )
-    features = extractor.build_feature_table(refined)
+    features, best_threshold = extractor.build_feature_table(refined)
 
     output_path = output_dir / "ear_multi_threshold_refined_blinks.csv"
     features.to_csv(output_path, index=False)
@@ -156,6 +156,7 @@ def main() -> None:
 
     n_success = int(features["refinement_succeeded"].sum())
     print(f"Refined {len(features)} blinks; {n_success} used threshold crossings.")
+    print(f"Representative threshold used for plotting: {best_threshold}")
     print("Average onset shift (s):", features["onset_offset_seconds"].mean())
     print("Average offset shift (s):", features["offset_offset_seconds"].mean())
 
