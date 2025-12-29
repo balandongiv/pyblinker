@@ -4,6 +4,7 @@ from .aggregate import aggregate_ear_features
 from .feature_extraction import (
     EARBlinkFeatureExtractor,
     EARFeatureConfig,
+    apply_flat_threshold_selection,
     compute_blink_features,
 )
 from .features import ear_before_blink_avg_epoch, ear_extrema_epoch
@@ -14,6 +15,7 @@ __all__ = [
     "aggregate_ear_features",
     "EARBlinkFeatureExtractor",
     "EARFeatureConfig",
+    "apply_flat_threshold_selection",
     "EARRefinementConfig",
     "EARThresholdBlinkRefiner",
     "compute_blink_features",
