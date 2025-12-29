@@ -8,8 +8,8 @@ the search is deterministically expanded outward up to a configurable limit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -283,6 +283,7 @@ class EARThresholdBlinkRefiner:
         return {
             "candidate_id": int(candidate_id),
             "blink_type": blink_label,
+            "threshold_value": float(self.config.threshold),
             "coarse_onset_time": float(coarse_onset),
             "coarse_offset_time": float(coarse_offset_time),
             "coarse_duration": float(coarse_duration_seconds),
@@ -336,3 +337,52 @@ class EARThresholdBlinkRefiner:
             self.config.threshold,
         )
         return refined
+
+
+def refine_annotations_for_thresholds(
+    *,
+    signal: np.ndarray,
+    sfreq: float,
+    annotations: pd.DataFrame,
+    candidate_thresholds: Sequence[float],
+    base_config: EARRefinementConfig,
+) -> pd.DataFrame:
+    """Run refinement for each candidate EAR threshold and concatenate results.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Full EAR signal (raw units).
+    sfreq : float
+        Sampling frequency in Hertz.
+    annotations : pd.DataFrame
+        Coarse annotation table with ``onset`` and ``duration``.
+    candidate_thresholds : Sequence[float]
+        Thresholds to evaluate; one refinement pass is run per value.
+    base_config : EARRefinementConfig
+        Baseline configuration. The ``threshold`` field is replaced for each pass.
+
+    Returns
+    -------
+    pd.DataFrame
+        Concatenated refinement results with ``threshold_value`` and
+        ``threshold_index`` identifying the threshold used for each row.
+    """
+
+    if not candidate_thresholds:
+        raise ValueError("At least one candidate threshold is required for refinement.")
+
+    refined_tables: List[pd.DataFrame] = []
+    for threshold_index, theta in enumerate(candidate_thresholds):
+        config = replace(base_config, threshold=float(theta))
+        refiner = EARThresholdBlinkRefiner(signal, sfreq, config)
+        refined = refiner.refine_annotations(annotations)
+        refined["threshold_value"] = float(theta)
+        refined["threshold_index"] = int(threshold_index)
+        refined_tables.append(refined)
+
+    combined = pd.concat(refined_tables, ignore_index=True)
+    logger.info(
+        "Refined %s annotations across %s thresholds", len(combined), len(candidate_thresholds)
+    )
+    return combined

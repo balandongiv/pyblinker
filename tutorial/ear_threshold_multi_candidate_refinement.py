@@ -1,9 +1,9 @@
-"""Tutorial: Evaluate multiple EAR thresholds and auto-select the plot threshold.
+"""Tutorial: Evaluate multiple EAR thresholds end-to-end.
 
 This example mirrors ``tutorial/ear_threshold_blink_refinement.py`` but demonstrates
-evaluating several EAR thresholds per blink window. Threshold-dependent metrics are
-stored per candidate, and the plotting threshold is auto-selected when none is
-explicitly provided.
+evaluating several EAR thresholds by *refining and extracting features per threshold*.
+Each refined blink row is tied to a single threshold so threshold-dependent metrics
+appear once per row without any internal per-blink threshold loops.
 """
 
 from __future__ import annotations
@@ -23,10 +23,9 @@ from pyblinker.blink_features.ear_metrics import (  # noqa: E402
     EARBlinkFeatureExtractor,
     EARFeatureConfig,
     EARRefinementConfig,
-    EARThresholdBlinkRefiner,
-    apply_flat_threshold_selection,
     load_coarse_blinks,
     load_ear_channel,
+    refine_annotations_for_thresholds,
 )
 from pyblinker.outside_annotation import build_refined_blink_report  # noqa: E402
 
@@ -45,7 +44,7 @@ def main() -> None:
     candidate_thresholds = [0.18, 0.2, 0.22, 0.24, 0.26]
 
     refinement_config = EARRefinementConfig(
-        threshold=0.23,  # still used for refining boundaries
+        threshold=0.23,  # baseline; replaced per candidate during refinement
         annotation_time_unit="seconds",
         max_extension=0.5,
         extension_step=0.05,
@@ -67,30 +66,29 @@ def main() -> None:
     ear_signal, sfreq = load_ear_channel(fif_path, channel="EAR-avg_ear")
     print(f"Sampling rate: {sfreq} Hz; signal length: {len(ear_signal)} samples")
 
-    refiner = EARThresholdBlinkRefiner(ear_signal, sfreq, refinement_config)
-    refined = refiner.refine_annotations(annotations)
+    refined = refine_annotations_for_thresholds(
+        signal=ear_signal,
+        sfreq=sfreq,
+        annotations=annotations,
+        candidate_thresholds=candidate_thresholds,
+        base_config=refinement_config,
+    )
 
-    # Extract features for every candidate threshold; plotting will auto-select.
+    # Extract features for every threshold-specific refined row.
     extractor = EARBlinkFeatureExtractor(
         ear_signal,
         sfreq,
-        threshold=candidate_thresholds,
+        threshold=None,  # threshold is supplied per-row via refinement
         feature_config=feature_config,
-        plot_threshold=None,
     )
     features = extractor.build_feature_table(refined)
-    best_threshold = apply_flat_threshold_selection(features, extractor.threshold_store)
 
     if save_reports:
         output_path = output_dir / "ear_multi_threshold_refined_blinks.csv"
         features.to_csv(output_path, index=False)
 
-    print("Example selected thresholds (first five rows):")
-    print(features.loc[:4, ["candidate_id", "selected_threshold_value", "threshold_selection_mode"]])
-
-    print("Available per-threshold metrics for the first blink:")
-    threshold_cols = [c for c in features.columns if c.startswith("threshold_")]
-    print(features.loc[0, threshold_cols].to_frame().T)
+    print("Example refined rows (first five across thresholds):")
+    print(features.loc[:4, ["candidate_id", "threshold_value", "refined_onset_time", "refined_offset_time"]])
 
     # Build visual reports:
     # 1) User-specified plot threshold.
@@ -99,7 +97,9 @@ def main() -> None:
     eeg_overlay = raw.get_data(picks="EEG-E8")[0]
     overlay_sfreq = float(raw.info["sfreq"])
 
-    report_df = features.copy()
+    # Use a single threshold slice for reporting/visualization.
+    report_threshold = candidate_thresholds[2]
+    report_df = features.loc[features["threshold_value"] == report_threshold].copy()
     left_time = pd.to_numeric(report_df["ear_threshold_left_time"], errors="coerce")
     right_time = pd.to_numeric(report_df["ear_threshold_right_time"], errors="coerce")
     min_time = pd.to_numeric(report_df["ear_threshold_min_time"], errors="coerce")
@@ -133,7 +133,7 @@ def main() -> None:
     )
     report_df["zero_crossing_found"] = report_df["ear_threshold_status"].eq("ok")
 
-    user_plot_threshold = 0.22
+    user_plot_threshold = report_threshold
     if save_reports:
         user_report_path = output_dir / "ear_multi_threshold_refined_blink_report_user.html"
         build_refined_blink_report(
@@ -151,30 +151,15 @@ def main() -> None:
             output_path=user_report_path,
         )
 
-        auto_report_path = output_dir / "ear_multi_threshold_refined_blink_report_auto.html"
-        build_refined_blink_report(
-            results=report_df,
-            signal=ear_signal,
-            sfreq=sfreq,
-            channel_name="EAR-avg_ear",
-            plot_overlay=True,
-            plot_signal_as_scatter=True,
-            mark_threshold_crossings=True,
-            threshold_value=best_threshold,
-            overlay_signal=eeg_overlay,
-            overlay_sfreq=overlay_sfreq,
-            overlay_label="EEG-E8",
-            output_path=auto_report_path,
-        )
-
     n_success = int(features["refinement_succeeded"].sum())
-    print(f"Refined {len(features)} blinks; {n_success} used threshold crossings.")
-    print(f"Representative threshold used for plotting: {best_threshold}")
+    print(f"Refined {len(features)} blink-threshold pairs; {n_success} used threshold crossings.")
+    print(f"Report threshold used for visualization: {report_threshold}")
     print("Average onset shift (s):", features["onset_offset_seconds"].mean())
     print("Average offset shift (s):", features["offset_offset_seconds"].mean())
 
     preview_cols = [
         "candidate_id",
+        "threshold_value",
         "blink_type",
         "refined_onset_time",
         "refined_offset_time",
@@ -182,8 +167,6 @@ def main() -> None:
         "refinement_succeeded",
         "ear_min",
         "ear_blink_depth",
-        "selected_threshold_value",
-        "threshold_selection_mode",
         "closed_duration_seconds",
         "auc_below_threshold",
         "blink_classification",
@@ -194,7 +177,6 @@ def main() -> None:
     if save_reports:
         print("\nSaved refined blink table to:", output_path)
         print("Blink validation report with user threshold saved to:", user_report_path)
-        print("Blink validation report with auto-selected threshold saved to:", auto_report_path)
     else:
         print("\nSaving is disabled (set PYBLINKER_SAVE_REPORTS=1 to enable).")
     print(

@@ -11,9 +11,9 @@ from pyblinker.blink_features.ear_metrics import (
     EARFeatureConfig,
     EARRefinementConfig,
     EARThresholdBlinkRefiner,
-    apply_flat_threshold_selection,
     load_coarse_blinks,
     load_ear_channel,
+    refine_annotations_for_thresholds,
 )
 
 
@@ -88,7 +88,6 @@ def test_feature_extraction_outputs_expected_columns(
         feature_config=EARFeatureConfig(baseline_window=0.1, context_window=0.05),
     )
     features = extractor.build_feature_table(refinement)
-    apply_flat_threshold_selection(features, extractor.threshold_store)
 
     required = {
         "ear_min",
@@ -111,30 +110,25 @@ def test_feature_extraction_handles_multiple_thresholds(
     ear_data: tuple[np.ndarray, float, pd.DataFrame]
 ) -> None:
     signal, sfreq, annotations = ear_data
-    refinement = EARThresholdBlinkRefiner(
-        signal,
-        sfreq,
-        EARRefinementConfig(threshold=0.23, annotation_time_unit="seconds"),
-    ).refine_annotations(annotations.head(2))
-
     thresholds = [0.18, 0.2, 0.22, 0.24, 0.26]
+    refinement = refine_annotations_for_thresholds(
+        signal=signal,
+        sfreq=sfreq,
+        annotations=annotations.head(2),
+        candidate_thresholds=thresholds,
+        base_config=EARRefinementConfig(threshold=0.23, annotation_time_unit="seconds"),
+    )
     extractor = EARBlinkFeatureExtractor(
         signal,
         sfreq,
-        threshold=thresholds,
+        threshold=None,
         feature_config=EARFeatureConfig(baseline_window=0.1, context_window=0.05),
     )
     features = extractor.build_feature_table(refinement)
-    best_threshold = apply_flat_threshold_selection(features, extractor.threshold_store)
 
-    assert "selected_threshold_value" in features.columns
-    assert all(np.isin(features["selected_threshold_value"], thresholds))
-    assert best_threshold in thresholds or best_threshold is None
-
-    # Flattened per-threshold metrics should be present as separate columns.
-    for theta in thresholds:
-        col = f"threshold_{theta:.6g}_closed_duration_seconds"
-        assert col in features.columns
+    assert (features["threshold_value"].isin(thresholds)).all()
+    # One row per (blink, threshold)
+    assert len(features) == len(thresholds) * 2
 
     # No nested dictionaries should be present.
     dict_in_columns = features.apply(lambda col: col.map(lambda x: isinstance(x, dict)).any()).any()
