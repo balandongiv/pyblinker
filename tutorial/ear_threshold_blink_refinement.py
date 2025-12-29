@@ -85,7 +85,7 @@ def main() -> None:
     extractor = EARBlinkFeatureExtractor(
         ear_signal, sfreq, threshold=ear_threshold, feature_config=feature_config
     )
-    features = extractor.build_feature_table(refined)
+    features, best_threshold = extractor.build_feature_table(refined)
 
     output_path = output_dir / "ear_threshold_refined_blinks.csv"
     features.to_csv(output_path, index=False)

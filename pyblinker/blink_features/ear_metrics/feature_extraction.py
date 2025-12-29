@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -385,113 +386,68 @@ def _flatten_threshold_metrics(
     return flat
 
 
-def _score_threshold_candidate(metrics: Mapping[str, float | str]) -> float:
-    """Score a threshold candidate for deterministic selection.
-
-    Higher is better. The policy prioritizes:
-    1. Successful threshold crossings (status == \"ok\").
-    2. Steeper opening/closing slopes (sum of absolute slopes).
-    3. Mid-range closed_fraction (penalizes extreme 0/1 saturation).
-
-    Parameters
-    ----------
-    metrics : Mapping[str, float | str]
-        Per-threshold metrics from ``_compute_threshold_features``.
-
-    Returns
-    -------
-    float
-        Selection score (``-inf`` when crossings fail).
-    """
-
-    status = metrics.get("ear_threshold_status")
-    if status != "ok":
-        return -np.inf
-
-    closing = float(metrics.get("ear_threshold_closing_slope", 0.0) or 0.0)
-    opening = float(metrics.get("ear_threshold_opening_slope", 0.0) or 0.0)
-    slope_score = abs(closing) + abs(opening)
-
-    closed_fraction = metrics.get("closed_fraction")
-    if closed_fraction is None or not np.isfinite(closed_fraction):
-        fraction_penalty = 0.5
-    else:
-        fraction_penalty = abs(float(closed_fraction) - 0.5)
-
-    return slope_score - fraction_penalty
-
-
-def _select_threshold(
+def _prepare_table_features(
     *,
-    threshold_metrics: Mapping[float, Mapping[str, float | str | bool]],
-    candidates: Sequence[float],
-    user_threshold: float | None,
-) -> Dict[str, float | str | None]:
-    """Select which threshold to surface for plotting and legacy fields.
+    features: Mapping[str, object],
+) -> Dict[str, float | str | bool]:
+    """Flatten and filter features for DataFrame construction.
 
-    Parameters
-    ----------
-    threshold_metrics : Mapping[float, Mapping[str, float | str | bool]]
-        Per-threshold metric dictionary keyed by the threshold value used.
-    candidates : Sequence[float]
-        Thresholds that are eligible for automatic selection (typically the list
-        the caller asked to evaluate).
-    user_threshold : float | None
-        Explicit threshold to honor for plotting; bypasses auto selection when set.
-
-    Returns
-    -------
-    dict
-        Selection metadata containing the chosen value, selection mode, reason,
-        and the candidate list considered.
+    Notes
+    -----
+    The returned mapping intentionally excludes selected-threshold scalars so they can
+    be surfaced separately from generic table metrics.
     """
 
-    if user_threshold is not None:
-        return {
-            "value": float(user_threshold),
-            "mode": "user",
-            "reason": "explicit plot threshold",
-            "candidates": list(candidates),
+    flattened_thresholds = features.get("threshold_metrics_flat", {})
+
+    scalar_features = {
+        key: value
+        for key, value in features.items()
+        if key
+        not in {
+            "threshold_metrics_flat",
+            "thresholds",
+            "base_features",
         }
-
-    if len(candidates) == 1:
-        only = float(candidates[0])
-        return {
-            "value": only,
-            "mode": "user",
-            "reason": "single threshold provided",
-            "candidates": list(candidates),
-        }
-
-    best_value: float | None = None
-    best_score = -np.inf
-    for theta in candidates:
-        metrics = threshold_metrics.get(theta)
-        if metrics is None:
-            continue
-        score = _score_threshold_candidate(metrics)
-        if score > best_score:
-            best_score = score
-            best_value = theta
-
-    if best_value is not None and np.isfinite(best_score):
-        return {
-            "value": float(best_value),
-            "mode": "auto",
-            "reason": "highest slope/closed-fraction score",
-            "candidates": list(candidates),
-        }
-
-    # Fallback: pick the median candidate deterministically.
-    sorted_candidates = list(candidates)
-    sorted_candidates.sort()
-    fallback = float(sorted_candidates[len(sorted_candidates) // 2])
-    return {
-        "value": fallback,
-        "mode": "fallback",
-        "reason": "no successful thresholds; median candidate used",
-        "candidates": list(candidates),
+        and not isinstance(value, (dict, list, tuple, np.ndarray))
     }
+
+    return {
+        **scalar_features,
+        **flattened_thresholds,
+    }
+
+
+def _select_best_threshold_from_df(df: pd.DataFrame) -> tuple[float | None, str]:
+    """Choose a representative threshold using flattened per-threshold status columns."""
+
+    status_pattern = re.compile(r"^threshold_(?P<value>[^_]+)_ear_threshold_status$")
+    candidates: list[tuple[float, int, int]] = []
+    for col in df.columns:
+        match = status_pattern.match(col)
+        if not match:
+            continue
+        try:
+            theta = float(match.group("value"))
+        except ValueError:
+            continue
+        status_series = df[col].astype(str)
+        ok_count = int((status_series == "ok").sum())
+        found_col = f"threshold_{match.group('value')}_ear_threshold_found_by"
+        found_count = 0
+        if found_col in df.columns:
+            found_count = int(df[found_col].notna().sum())
+        candidates.append((theta, ok_count, found_count))
+
+    if not candidates:
+        return None, "unavailable"
+
+    candidates.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    top_ok = candidates[0][1]
+    best_candidates = [c for c in candidates if c[1] == top_ok]
+    best_found = max(c[2] for c in best_candidates)
+    best = [c for c in best_candidates if c[2] == best_found][0]
+    return float(best[0]), "auto_flat_df"
 
 
 def compute_blink_features(
@@ -533,8 +489,7 @@ def compute_blink_features(
         - ``base_features``: threshold-independent metrics.
         - ``thresholds``: per-threshold metric dictionaries keyed by value.
         - ``threshold_metrics_flat``: flattened per-threshold metrics for easy tabular use.
-        - ``selected_threshold``: selection metadata (value, mode, reason, candidates).
-        - Legacy keys mirroring the selected threshold for backward compatibility.
+        - ``blink_type_original``: passthrough of the blink label.
     """
 
     start_sample = int(max(0, start_sample))
@@ -549,7 +504,6 @@ def compute_blink_features(
         feature_config=feature_config,
     )
 
-    evaluation_thresholds = _normalize_thresholds(threshold)
     computed_thresholds = _normalize_thresholds(threshold, extra_threshold=plot_threshold)
 
     threshold_metrics: Dict[float, Dict[str, float | str | bool]] = {}
@@ -568,46 +522,14 @@ def compute_blink_features(
             blink_type=blink_type,
         )
 
-    selection = _select_threshold(
-        threshold_metrics=threshold_metrics,
-        candidates=evaluation_thresholds,
-        user_threshold=plot_threshold,
-    )
-
-    selected_metrics = threshold_metrics.get(selection["value"], {})
     threshold_metrics_flat = _flatten_threshold_metrics(threshold_metrics)
 
     features: Dict[str, object] = {
         "base_features": base_features,
-        "thresholds": threshold_metrics,
         "threshold_metrics_flat": threshold_metrics_flat,
-        "selected_threshold": selection,
-        # Convenience copies for backward compatibility with existing flat columns.
         "blink_type_original": blink_type,
     }
     features.update(base_features)
-    # Legacy surface of selected threshold-dependent metrics
-    for key, value in selected_metrics.items():
-        features[f"selected_{key}"] = value
-    for legacy_key in (
-        "ear_threshold_closing_slope",
-        "ear_threshold_opening_slope",
-        "ear_threshold_left_time",
-        "ear_threshold_min_time",
-        "ear_threshold_right_time",
-        "ear_threshold_found_by",
-        "ear_threshold_status",
-        "closed_duration_seconds",
-        "closed_fraction",
-        "time_under_threshold_seconds",
-        "time_under_threshold_fraction",
-        "auc_below_threshold",
-        "classification_threshold",
-        "blink_classification",
-        "threshold_value",
-    ):
-        if legacy_key in selected_metrics:
-            features[legacy_key] = selected_metrics[legacy_key]
 
     return features
 
@@ -645,8 +567,8 @@ class EARBlinkFeatureExtractor:
         self.plot_threshold = plot_threshold
         self.feature_config = feature_config or EARFeatureConfig()
 
-    def build_feature_table(self, refined: pd.DataFrame) -> pd.DataFrame:
-        """Attach EAR-based blink features to refined annotation rows.
+    def build_feature_table(self, refined: pd.DataFrame) -> tuple[pd.DataFrame, float | None]:
+        """Attach EAR-based blink features to refined annotation rows and choose a representative threshold.
 
         Parameters
         ----------
@@ -656,10 +578,8 @@ class EARBlinkFeatureExtractor:
 
         Returns
         -------
-        pd.DataFrame
-            Input rows augmented with base EAR metrics, per-threshold metrics,
-            flattened per-threshold columns, and legacy selected-threshold fields
-            for plotting/report compatibility.
+        tuple[pd.DataFrame, float | None]
+            The feature table and the representative threshold chosen from flattened metrics.
         """
 
         required_cols = {"refined_start_sample", "refined_end_sample"}
@@ -681,38 +601,31 @@ class EARBlinkFeatureExtractor:
                 feature_config=self.feature_config,
                 plot_threshold=self.plot_threshold,
             )
-            flattened_thresholds = features.get("threshold_metrics_flat", {})
-            selection = features.get("selected_threshold", {})
-
-            # Retain only scalar-friendly keys from features.
-            scalar_features = {
-                key: value
-                for key, value in features.items()
-                if key
-                not in {
-                    "threshold_metrics_flat",
-                    "thresholds",
-                    "base_features",
-                    "selected_threshold",
-                }
-                and not isinstance(value, (dict, list, tuple, np.ndarray))
-            }
-
             combined = {
                 **row,
-                **scalar_features,
-                **flattened_thresholds,
-                "selected_threshold_value": selection.get("value"),
-                "threshold_selection_mode": selection.get("mode"),
-                "threshold_selection_reason": selection.get("reason"),
+                **_prepare_table_features(features=features),
+                "refined_duration": float(
+                    (row["refined_end_sample"] - row["refined_start_sample"]) / self.sfreq
+                ),
             }
-            combined["time_under_threshold_fraction"] = combined.get("closed_fraction", float("nan"))
-            combined["refined_duration"] = float(
-                (combined["refined_end_sample"] - combined["refined_start_sample"]) / self.sfreq
-            )
-            combined["refined_duration"] = max(combined["refined_duration"], 0.0)
             records.append(combined)
 
         df = pd.DataFrame.from_records(records)
+        best_threshold, selection_mode = _select_best_threshold_from_df(df)
+        selection_reason = (
+            "most_ok_statuses_in_flat_metrics" if best_threshold is not None else "no_thresholds"
+        )
+        df["selected_threshold_value"] = best_threshold
+        df["threshold_selection_mode"] = selection_mode
+        df["threshold_selection_reason"] = selection_reason
+
         logger.info("Computed EAR features for %s blinks", len(df))
-        return df
+        if best_threshold is not None:
+            prefix = f"threshold_{best_threshold:.6g}_"
+            metric_cols = [c for c in df.columns if c.startswith(prefix)]
+            for col in metric_cols:
+                base_name = col[len(prefix) :]
+                df[base_name] = df[col]
+            df["time_under_threshold_fraction"] = df.get("closed_fraction", float("nan"))
+
+        return df, best_threshold
