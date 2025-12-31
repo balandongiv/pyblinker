@@ -249,6 +249,32 @@ def build_refined_blink_report(
         if not np.isfinite(right_time):
             right_time = right / sfreq
 
+        interpolated_left_time = getattr(
+            row, "ear_interpolated_left_time", getattr(row, "left_interpolated_threshold", None)
+        )
+        interpolated_right_time = getattr(
+            row, "ear_interpolated_right_time", getattr(row, "right_interpolated_threshold", None)
+        )
+        if interpolated_left_time is not None and (pd.isna(interpolated_left_time) or np.isinf(interpolated_left_time)):
+            interpolated_left_time = None
+        if interpolated_right_time is not None and (pd.isna(interpolated_right_time) or np.isinf(interpolated_right_time)):
+            interpolated_right_time = None
+
+        interpolated_left_sample = getattr(
+            row,
+            "ear_interpolated_left_sample",
+            getattr(row, "left_interpolated_threshold_sample", None),
+        )
+        interpolated_right_sample = getattr(
+            row,
+            "ear_interpolated_right_sample",
+            getattr(row, "right_interpolated_threshold_sample", None),
+        )
+        if interpolated_left_sample is None and interpolated_left_time is not None:
+            interpolated_left_sample = float(np.clip(interpolated_left_time * sfreq, 0, n_samples - 1))
+        if interpolated_right_sample is None and interpolated_right_time is not None:
+            interpolated_right_sample = float(np.clip(interpolated_right_time * sfreq, 0, n_samples - 1))
+
         min_time_attr = getattr(row, "ear_threshold_min_time", None)
         min_time = float(min_time_attr) if min_time_attr is not None else None
         if min_time is not None and (pd.isna(min_time) or np.isinf(min_time)):
@@ -349,6 +375,48 @@ def build_refined_blink_report(
                 marker="*",
                 alpha=0.45,
                 label="Threshold landmarks",
+            )
+
+        interpolated_points = []
+        marker_threshold_value = chosen_threshold
+        if marker_threshold_value is None:
+            marker_threshold_value = getattr(row, "threshold_value", None)
+        if marker_threshold_value is None and chosen_threshold is None:
+            marker_threshold_value = None
+
+        def _sample_value(value: float | int | None) -> int:
+            if value is None:
+                return 0
+            return int(np.clip(round(float(value)), 0, n_samples - 1))
+
+        if interpolated_left_time is not None:
+            sample_idx = _sample_value(interpolated_left_sample if interpolated_left_sample is not None else left)
+            y_left = (
+                float(marker_threshold_value)
+                if marker_threshold_value is not None
+                else float(signal[sample_idx])
+            )
+            interpolated_points.append((float(interpolated_left_time), y_left))
+        if interpolated_right_time is not None:
+            sample_idx = _sample_value(
+                interpolated_right_sample if interpolated_right_sample is not None else right
+            )
+            y_right = float(marker_threshold_value) if marker_threshold_value is not None else float(
+                signal[sample_idx]
+            )
+            interpolated_points.append((float(interpolated_right_time), y_right))
+
+        if interpolated_points:
+            times, values = zip(*interpolated_points)
+            ax.scatter(
+                times,
+                values,
+                color="C6",
+                zorder=6,
+                s=36,
+                marker="D",
+                alpha=0.8,
+                label="Interpolated crossings",
             )
 
         ax.annotate(
@@ -453,6 +521,12 @@ def build_refined_blink_report(
             caption += f" Threshold value: {float(chosen_threshold):.3f}{suffix}."
         if min_time is not None:
             caption += f" Minimum EAR at {float(min_time):.3f}s."
+        if interpolated_left_time is not None or interpolated_right_time is not None:
+            caption += " Interpolated crossings:"
+            if interpolated_left_time is not None:
+                caption += f" left {float(interpolated_left_time):.3f}s;"
+            if interpolated_right_time is not None:
+                caption += f" right {float(interpolated_right_time):.3f}s."
         report.add_figure(
             fig=fig,
             title=f"Blink {idx}",

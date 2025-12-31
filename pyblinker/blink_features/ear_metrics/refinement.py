@@ -234,6 +234,7 @@ class EARThresholdBlinkRefiner:
         self.signal = np.asarray(signal, dtype=float)
         self.sfreq = float(sfreq)
         self.config = config
+        self._dt = 1.0 / self.sfreq
 
     def _compute_lowest_point_sample(self, start: int, end: int) -> float:
         """Return the lowest EAR sample index within the refined interval.
@@ -336,6 +337,80 @@ class EARThresholdBlinkRefiner:
             **search_result,
         }
 
+    def _interpolate_crossing(self, idx: int, y0: float, y1: float) -> Tuple[float, float]:
+        """Return interpolated crossing time/sample for a segment."""
+
+        denom = y1 - y0
+        if denom == 0 or not np.isfinite(denom):
+            return float("nan"), float("nan")
+        fraction = (self.config.threshold - y0) / denom
+        crossing_sample = float(idx + fraction)
+        crossing_time = float(crossing_sample * self._dt)
+        return crossing_time, crossing_sample
+
+    def _compute_interpolated_thresholds(
+        self, record: Dict[str, float | int | str | bool]
+    ) -> Dict[str, float | bool]:
+        """Compute linearly interpolated threshold crossings around a refined blink."""
+
+        n_samples = self.signal.shape[0]
+        padding_samples = int(round(self.config.padding * self.sfreq))
+
+        start_sample = int(record["refined_start_sample"])
+        end_sample = int(record["refined_end_sample"])
+        min_sample_raw = record.get("refined_lowest_point_sample")
+        min_sample = None
+        if min_sample_raw is not None and np.isfinite(min_sample_raw):
+            candidate = int(min_sample_raw)
+            if 0 <= candidate < n_samples:
+                min_sample = candidate
+
+        search_start = max(0, start_sample - padding_samples)
+        search_end = min(n_samples - 1, end_sample + padding_samples)
+
+        if search_start >= search_end:
+            return {
+                "left_interpolated_threshold": float("nan"),
+                "right_interpolated_threshold": float("nan"),
+                "left_interpolated_threshold_sample": float("nan"),
+                "right_interpolated_threshold_sample": float("nan"),
+                "left_interpolated_threshold_found": False,
+                "right_interpolated_threshold_found": False,
+                "interpolated_thresholds_found": False,
+            }
+
+        distances = np.asarray(self.signal, dtype=float) - float(self.config.threshold)
+
+        def _find_crossing(start_idx: int, end_idx: int, direction: str) -> Tuple[float, float]:
+            step_end = min(end_idx, n_samples - 2)
+            for idx in range(start_idx, step_end + 1):
+                y0 = distances[idx]
+                y1 = distances[idx + 1]
+                if not (np.isfinite(y0) and np.isfinite(y1)):
+                    continue
+
+                if direction == "down" and y0 > 0 and y1 <= 0:
+                    return self._interpolate_crossing(idx, self.signal[idx], self.signal[idx + 1])
+                if direction == "up" and y0 < 0 and y1 >= 0:
+                    return self._interpolate_crossing(idx, self.signal[idx], self.signal[idx + 1])
+            return float("nan"), float("nan")
+
+        left_end = search_end if min_sample is None else min(search_end, min_sample)
+        left_time, left_sample = _find_crossing(search_start, left_end, direction="down")
+
+        right_start = search_start if min_sample is None else min_sample
+        right_time, right_sample = _find_crossing(right_start, search_end, direction="up")
+
+        return {
+            "left_interpolated_threshold": left_time,
+            "right_interpolated_threshold": right_time,
+            "left_interpolated_threshold_sample": left_sample,
+            "right_interpolated_threshold_sample": right_sample,
+            "left_interpolated_threshold_found": bool(np.isfinite(left_time)),
+            "right_interpolated_threshold_found": bool(np.isfinite(right_time)),
+            "interpolated_thresholds_found": bool(np.isfinite(left_time) and np.isfinite(right_time)),
+        }
+
     def refine_annotations(self, annotations: pd.DataFrame) -> pd.DataFrame:
         """Refine all blink annotations in a DataFrame.
 
@@ -359,6 +434,7 @@ class EARThresholdBlinkRefiner:
         records: List[Dict[str, float | int | str | bool]] = []
         for idx, row in enumerate(annotations.itertuples(index=False)):
             record = self.refine_annotation_row(row._asdict(), idx)
+            record.update(self._compute_interpolated_thresholds(record))
             records.append(record)
 
         refined = pd.DataFrame.from_records(records)

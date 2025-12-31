@@ -106,6 +106,45 @@ def test_feature_extraction_outputs_expected_columns(
     assert (features["refined_duration"] >= 0).all()
 
 
+def test_interpolated_crossings_and_slopes() -> None:
+    signal = np.array([1.0, 0.6, 0.4, 0.2, 0.6, 1.0], dtype=float)
+    sfreq = 10.0
+    threshold = 0.5
+    annotations = pd.DataFrame({"onset": [0.0], "duration": [0.5]})
+
+    config = EARRefinementConfig(
+        threshold=threshold,
+        annotation_time_unit="seconds",
+        padding=0.2,
+    )
+    refiner = EARThresholdBlinkRefiner(signal, sfreq, config)
+    refined = refiner.refine_annotations(annotations)
+
+    record = refined.iloc[0]
+    assert np.isfinite(record["left_interpolated_threshold"])
+    assert np.isfinite(record["right_interpolated_threshold"])
+    np.testing.assert_allclose(
+        [
+            record["left_interpolated_threshold_sample"],
+            record["right_interpolated_threshold_sample"],
+        ],
+        [1.5, 3.75],
+        atol=1e-6,
+    )
+
+    extractor = EARBlinkFeatureExtractor(
+        signal,
+        sfreq,
+        feature_config=EARFeatureConfig(baseline_window=0.0, context_window=0.0),
+    )
+    features = extractor.build_feature_table(refined)
+    slopes = features.loc[0, ["refined_closing_slope", "refined_opening_slope"]]
+    interpolated_slopes = features.loc[
+        0, ["interpolated_closing_slope", "interpolated_opening_slope"]
+    ]
+    np.testing.assert_allclose(slopes.to_numpy(dtype=float), [-2.0, 4.0], atol=1e-6)
+    np.testing.assert_allclose(interpolated_slopes.to_numpy(dtype=float), [-2.0, 4.0], atol=1e-6)
+
 def test_feature_extraction_handles_multiple_thresholds(
     ear_data: tuple[np.ndarray, float, pd.DataFrame]
 ) -> None:

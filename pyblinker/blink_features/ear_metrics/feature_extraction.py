@@ -252,6 +252,8 @@ def _compute_threshold_features(
     lowest_point_sample: int | float | None,
     window: np.ndarray,
     threshold: float,
+    left_interpolated_threshold: float | None,
+    right_interpolated_threshold: float | None,
     feature_config: EARFeatureConfig,
     blink_type: Optional[str],
 ) -> Dict[str, float | str | bool]:
@@ -292,6 +294,10 @@ def _compute_threshold_features(
     slope_metrics: Dict[str, float] = {
         "ear_threshold_closing_slope": float("nan"),
         "ear_threshold_opening_slope": float("nan"),
+        "refined_closing_slope": float("nan"),
+        "refined_opening_slope": float("nan"),
+        "interpolated_closing_slope": float("nan"),
+        "interpolated_opening_slope": float("nan"),
     }
 
     resolved_lowest_sample: int | None = None
@@ -314,8 +320,25 @@ def _compute_threshold_features(
             {
                 "ear_threshold_closing_slope": closing_slope,
                 "ear_threshold_opening_slope": opening_slope,
+                "refined_closing_slope": closing_slope,
+                "refined_opening_slope": opening_slope,
             }
         )
+
+        y_min = float(signal[resolved_lowest_sample])
+        t_min = resolved_lowest_sample * dt
+        if left_interpolated_threshold is not None and np.isfinite(left_interpolated_threshold):
+            duration = t_min - float(left_interpolated_threshold)
+            if duration > 0:
+                slope_metrics["interpolated_closing_slope"] = float(
+                    (y_min - threshold) / duration
+                )
+        if right_interpolated_threshold is not None and np.isfinite(right_interpolated_threshold):
+            duration = float(right_interpolated_threshold) - t_min
+            if duration > 0:
+                slope_metrics["interpolated_opening_slope"] = float(
+                    (threshold - y_min) / duration
+                )
 
     under_threshold_mask = window < threshold
     closed_duration = float(under_threshold_mask.sum() * dt)
@@ -361,6 +384,8 @@ def compute_blink_features(
     start_sample: int,
     end_sample: int,
     lowest_point_sample: int | float | None,
+    left_interpolated_threshold: float | None,
+    right_interpolated_threshold: float | None,
     blink_type: Optional[str],
     feature_config: EARFeatureConfig,
 ) -> Dict[str, object]:
@@ -380,6 +405,10 @@ def compute_blink_features(
         Refined blink offset sample (inclusive).
     lowest_point_sample : int | float | None
         Lowest EAR sample within the refined interval, if available.
+    left_interpolated_threshold : float | None
+        Interpolated downward threshold crossing time (seconds) if available.
+    right_interpolated_threshold : float | None
+        Interpolated upward threshold crossing time (seconds) if available.
     blink_type : str | None
         Optional blink label.
     feature_config : EARFeatureConfig
@@ -417,6 +446,8 @@ def compute_blink_features(
         lowest_point_sample=lowest_point_sample,
         window=window,
         threshold=threshold,
+        left_interpolated_threshold=left_interpolated_threshold,
+        right_interpolated_threshold=right_interpolated_threshold,
         feature_config=feature_config,
         blink_type=blink_type,
     )
@@ -498,6 +529,8 @@ class EARBlinkFeatureExtractor:
                 start_sample=int(row["refined_start_sample"]),
                 end_sample=int(row["refined_end_sample"]),
                 lowest_point_sample=row.get("refined_lowest_point_sample"),
+                left_interpolated_threshold=row.get("left_interpolated_threshold"),
+                right_interpolated_threshold=row.get("right_interpolated_threshold"),
                 blink_type=row.get("blink_type"),
                 feature_config=self.feature_config,
             )
