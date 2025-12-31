@@ -84,7 +84,7 @@ class BlinkRegionRefinementFlow:
     def refine_candidates(
         self, signal: np.ndarray, sfreq: float, annotations: pd.DataFrame
     ) -> pd.DataFrame:
-        """Refine approximate blink regions using threshold-crossing detection."""
+        """Refine approximate blink regions using zero-crossing detection."""
 
         n_samples = signal.shape[0]
         buffer_samples = int(round(self.config.buffer_seconds * sfreq))
@@ -101,9 +101,9 @@ class BlinkRegionRefinementFlow:
 
             max_value, max_blink = get_max_blink(signal, start_sample, end_sample)
 
-            threshold_crossing_found = True
+            zero_crossing_found = True
             try:
-                left_threshold, right_threshold = left_right_zero_crossing(
+                left_zero, right_zero = left_right_zero_crossing(
                     signal,
                     max_blink,
                     outer_start,
@@ -112,18 +112,18 @@ class BlinkRegionRefinementFlow:
                 )
             except Exception:
                 logger.exception(
-                    "Failed to compute threshold crossings; falling back to annotation bounds",
+                    "Failed to compute zero crossings; falling back to annotation bounds",
                     extra={"candidate_id": row.candidate_id},
                 )
-                left_threshold, right_threshold = np.nan, np.nan
-                threshold_crossing_found = False
+                left_zero, right_zero = np.nan, np.nan
+                zero_crossing_found = False
 
-            if np.isnan(left_threshold):
-                left_threshold = start_sample
-                threshold_crossing_found = False
-            if np.isnan(right_threshold):
-                right_threshold = end_sample
-                threshold_crossing_found = False
+            if np.isnan(left_zero):
+                left_zero = start_sample
+                zero_crossing_found = False
+            if np.isnan(right_zero):
+                right_zero = end_sample
+                zero_crossing_found = False
 
             records.append(
                 {
@@ -139,17 +139,17 @@ class BlinkRegionRefinementFlow:
                     "outer_end": outer_end,
                     "max_value": max_value,
                     "max_blink": max_blink,
-                    "refined_left_threshold": int(left_threshold),
-                    "refined_right_threshold": int(right_threshold),
-                    "threshold_crossing_found": bool(threshold_crossing_found),
+                    "refined_left_zero": int(left_zero),
+                    "refined_right_zero": int(right_zero),
+                    "zero_crossing_found": bool(zero_crossing_found),
                 }
             )
 
         refined = pd.DataFrame.from_records(records)
         logger.info(
-            "Loaded %s blink candidates; %s had threshold crossings",
+            "Loaded %s blink candidates; %s had zero-crossings",
             len(refined),
-            int(refined["threshold_crossing_found"].sum()),
+            int(refined["zero_crossing_found"].sum()),
         )
         return refined
 
@@ -164,13 +164,13 @@ class BlinkRegionRefinementFlow:
                 "end_blink",
                 "outer_start",
                 "outer_end",
-                "refined_left_threshold",
-                "refined_right_threshold",
+                "refined_left_zero",
+                "refined_right_zero",
                 "max_value",
                 "max_blink",
             ]
         ].rename(
-            columns={"refined_left_threshold": "left_zero", "refined_right_threshold": "right_zero"}
+            columns={"refined_left_zero": "left_zero", "refined_right_zero": "right_zero"}
         )
         fit_rows = fit_rows.set_index("candidate_id")
 

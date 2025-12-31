@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+import re
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
+from pyblinker.fitutils.ear_crossing import (
+    ThresholdCrossingError,
+    compute_threshold_slopes,
+    find_threshold_crossing_triplet,
+)
 from pyblinker.logging import get_logger
 
 logger = get_logger(__name__)
@@ -74,41 +80,41 @@ def _safe_gradient(values: np.ndarray, dt: float) -> np.ndarray:
     return np.gradient(values, dt)
 
 
-def _compute_slopes_from_samples(
-    signal: np.ndarray,
-    start_sample: int,
-    lowest_sample: int,
-    end_sample: int,
-    sfreq: float,
-) -> tuple[float, float]:
-    """Return closing/opening slopes using refined boundaries and lowest point.
+def _normalize_thresholds(
+    thresholds: float | Sequence[float], extra_threshold: float | None = None
+) -> List[float]:
+    """Return a deterministic, deduplicated threshold list preserving order.
 
-    Slopes are derived directly from EAR values at the provided sample indices. When
-    samples are invalid, out of order, or coincide in time, ``nan`` is returned for
-    the corresponding slope.
+    Parameters
+    ----------
+    thresholds : float | Sequence[float]
+        Single threshold or iterable of thresholds to evaluate.
+    extra_threshold : float | None
+        Optional additional threshold to append (e.g., explicit plot value).
+
+    Returns
+    -------
+    list[float]
+        Ordered, de-duplicated threshold list.
     """
 
-    n_samples = signal.shape[0]
-    if (
-        start_sample < 0
-        or end_sample >= n_samples
-        or lowest_sample < start_sample
-        or lowest_sample > end_sample
-    ):
-        return float("nan"), float("nan")
+    if isinstance(thresholds, (str, bytes)):
+        raise TypeError("Thresholds must be numeric, not a string.")
 
-    dt = 1.0 / sfreq
-    closing_duration = (lowest_sample - start_sample) * dt
-    opening_duration = (end_sample - lowest_sample) * dt
+    if isinstance(thresholds, Sequence):
+        threshold_list = [float(t) for t in thresholds]
+    else:
+        threshold_list = [float(thresholds)]
 
-    closing_slope = float("nan")
-    opening_slope = float("nan")
-    if closing_duration > 0:
-        closing_slope = float((signal[lowest_sample] - signal[start_sample]) / closing_duration)
-    if opening_duration > 0:
-        opening_slope = float((signal[end_sample] - signal[lowest_sample]) / opening_duration)
+    if extra_threshold is not None:
+        threshold_list.append(float(extra_threshold))
 
-    return closing_slope, opening_slope
+    # Deduplicate while preserving order to avoid collisions in the per-threshold mapping.
+    unique_thresholds = list(dict.fromkeys(threshold_list))
+    if not unique_thresholds:
+        raise ValueError("At least one threshold value is required for feature extraction.")
+
+    return unique_thresholds
 
 
 def _compute_base_features(
@@ -249,9 +255,6 @@ def _compute_threshold_features(
     start_sample: int,
     end_sample: int,
     min_sample: int,
-    lowest_point_sample: int | float | None,
-    left_interpolated_threshold: float | None,
-    right_interpolated_threshold: float | None,
     window: np.ndarray,
     threshold: float,
     feature_config: EARFeatureConfig,
@@ -271,12 +274,6 @@ def _compute_threshold_features(
         Refined blink offset sample (inclusive).
     min_sample : int
         Sample index of the minimum EAR within the blink window.
-    lowest_point_sample : int | float | None
-        Refined lowest EAR sample within the blink interval, if available.
-    left_interpolated_threshold : float | None
-        Time of the downward threshold crossing computed via interpolation (seconds).
-    right_interpolated_threshold : float | None
-        Time of the upward threshold crossing computed via interpolation (seconds).
     window : np.ndarray
         Blink window slice from ``start_sample`` to ``end_sample`` (inclusive).
     threshold : float
@@ -289,71 +286,49 @@ def _compute_threshold_features(
     Returns
     -------
     dict
-        Metrics tied to the provided threshold, including slopes derived from refined
-        boundaries + lowest point, interpolated crossing slopes when available, durations,
-        AUC, classification outcome (prefers CSV label), and computed classification.
+        Metrics tied to the provided threshold, including slopes, durations, AUC,
+        classification outcome (prefers CSV label), computed classification, and
+        crossing metadata.
     """
 
     dt = 1.0 / sfreq
-    slope_metrics: Dict[str, float] = {
+    slope_metrics: Dict[str, float | str | bool] = {
         "ear_threshold_closing_slope": float("nan"),
         "ear_threshold_opening_slope": float("nan"),
-        "refined_closing_slope": float("nan"),
-        "refined_opening_slope": float("nan"),
-        "interpolated_closing_slope": float("nan"),
-        "interpolated_opening_slope": float("nan"),
+        "ear_threshold_left_time": float("nan"),
+        "ear_threshold_min_time": float("nan"),
+        "ear_threshold_right_time": float("nan"),
+        "ear_threshold_found_by": "unattempted",
+        "ear_threshold_status": "failed",
     }
 
-    resolved_lowest_sample: int | None = None
-    if lowest_point_sample is not None and np.isfinite(lowest_point_sample):
-        candidate = int(lowest_point_sample)
-        if start_sample <= candidate <= end_sample and 0 <= candidate < signal.shape[0]:
-            resolved_lowest_sample = candidate
-    if resolved_lowest_sample is None and start_sample <= min_sample <= end_sample:
-        resolved_lowest_sample = int(min_sample)
-
-    if resolved_lowest_sample is not None:
-        closing_slope, opening_slope = _compute_slopes_from_samples(
-            signal=signal,
-            start_sample=start_sample,
-            lowest_sample=resolved_lowest_sample,
-            end_sample=end_sample,
-            sfreq=sfreq,
+    try:
+        max_expansion = int(round(feature_config.slope_max_expansion_seconds * sfreq))
+        expansion_step = int(max(1, round(feature_config.slope_expansion_step_seconds * sfreq)))
+        t = np.arange(signal.shape[0]) / sfreq
+        triplet = find_threshold_crossing_triplet(
+            signal,
+            theta=threshold,
+            t=t,
+            window=(start_sample, end_sample),
+            max_expansion=max_expansion,
+            expansion_step=expansion_step,
+            plateau_policy=feature_config.slope_plateau_policy,  # type: ignore[arg-type]
         )
+        closing_slope, opening_slope = compute_threshold_slopes(triplet, threshold)
         slope_metrics.update(
             {
                 "ear_threshold_closing_slope": closing_slope,
                 "ear_threshold_opening_slope": opening_slope,
-                "refined_closing_slope": closing_slope,
-                "refined_opening_slope": opening_slope,
+                "ear_threshold_left_time": triplet.left.time,
+                "ear_threshold_min_time": triplet.minimum_time,
+                "ear_threshold_right_time": triplet.right.time,
+                "ear_threshold_found_by": triplet.found_by,
+                "ear_threshold_status": triplet.status,
             }
         )
-
-        def _to_float(value: float | None) -> Optional[float]:
-            if value is None:
-                return None
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                return None
-            return numeric if np.isfinite(numeric) else None
-
-        left_time = _to_float(left_interpolated_threshold)
-        right_time = _to_float(right_interpolated_threshold)
-        if left_time is not None and right_time is not None:
-            t_min = resolved_lowest_sample / sfreq
-            if left_time < t_min < right_time:
-                min_value = float(signal[resolved_lowest_sample])
-                closing_denom = t_min - left_time
-                opening_denom = right_time - t_min
-                if closing_denom > 0:
-                    slope_metrics["interpolated_closing_slope"] = float(
-                        (min_value - threshold) / closing_denom
-                    )
-                if opening_denom > 0:
-                    slope_metrics["interpolated_opening_slope"] = float(
-                        (threshold - min_value) / opening_denom
-                    )
+    except ThresholdCrossingError:
+        slope_metrics["ear_threshold_status"] = "failed"
 
     under_threshold_mask = window < threshold
     closed_duration = float(under_threshold_mask.sum() * dt)
@@ -365,13 +340,7 @@ def _compute_threshold_features(
         if feature_config.classification_threshold is not None
         else threshold
     )
-    min_index_for_metrics = (
-        resolved_lowest_sample if resolved_lowest_sample is not None else int(min_sample)
-    )
-    min_offset = min_index_for_metrics - start_sample
-    min_value = float("nan")
-    if 0 <= min_offset < window.size:
-        min_value = float(window[int(min_offset)])
+    min_value = float(window[int(min_sample - start_sample)])
     computed_classification = "full" if min_value < classification_threshold else "partial"
     blink_classification = (
         str(blink_type) if blink_type is not None and str(blink_type) else computed_classification
@@ -392,19 +361,145 @@ def _compute_threshold_features(
     return threshold_features
 
 
+def _flatten_threshold_metrics(
+    threshold_metrics: Mapping[float, Mapping[str, float | str | bool]]
+) -> Dict[str, float | str | bool]:
+    """Flatten per-threshold metrics into prefixed keys for tabular inspection.
+
+    Parameters
+    ----------
+    threshold_metrics : Mapping[float, Mapping[str, float | str | bool]]
+        Metrics keyed by threshold value.
+
+    Returns
+    -------
+    dict
+        Flattened metrics with keys of the form ``threshold_<value>_<metric>`` (all
+        values are scalar: float, int, bool, or str).
+    """
+
+    flat: Dict[str, float | str | bool] = {}
+    for theta, metrics in threshold_metrics.items():
+        prefix = f"threshold_{theta:.6g}_"
+        for key, value in metrics.items():
+            flat[f"{prefix}{key}"] = value
+    return flat
+
+
+def _prepare_table_features(
+    *,
+    features: Mapping[str, object],
+) -> Dict[str, float | str | bool]:
+    """Flatten and filter features for DataFrame construction.
+
+    Notes
+    -----
+    The returned mapping intentionally excludes selected-threshold scalars so they can
+    be surfaced separately from generic table metrics.
+    """
+
+    flattened_thresholds = features.get("threshold_metrics_flat", {})
+
+    scalar_features = {
+        key: value
+        for key, value in features.items()
+        if key
+        not in {
+            "threshold_metrics_flat",
+            "thresholds",
+            "base_features",
+        }
+        and not isinstance(value, (dict, list, tuple, np.ndarray))
+    }
+
+    return {
+        **scalar_features,
+        **flattened_thresholds,
+    }
+
+
+def _select_best_threshold_from_df(df: pd.DataFrame) -> tuple[float | None, str]:
+    """Choose a representative threshold using flattened per-threshold status columns."""
+
+    status_pattern = re.compile(r"^threshold_(?P<value>[^_]+)_ear_threshold_status$")
+    candidates: list[tuple[float, int, int]] = []
+    for col in df.columns:
+        match = status_pattern.match(col)
+        if not match:
+            continue
+        try:
+            theta = float(match.group("value"))
+        except ValueError:
+            continue
+        status_series = df[col].astype(str)
+        ok_count = int((status_series == "ok").sum())
+        found_col = f"threshold_{match.group('value')}_ear_threshold_found_by"
+        found_count = 0
+        if found_col in df.columns:
+            found_count = int(df[found_col].notna().sum())
+        candidates.append((theta, ok_count, found_count))
+
+    if not candidates:
+        return None, "unavailable"
+
+    candidates.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    top_ok = candidates[0][1]
+    best_candidates = [c for c in candidates if c[1] == top_ok]
+    best_found = max(c[2] for c in best_candidates)
+    best = [c for c in best_candidates if c[2] == best_found][0]
+    return float(best[0]), "auto_flat_df"
+
+
+def apply_flat_threshold_selection(
+    df: pd.DataFrame,
+    threshold_store: Sequence[Mapping[float, Mapping[str, float | str | bool]]],
+) -> float | None:
+    """Populate selection metadata and legacy scalar columns using flattened metrics."""
+
+    best_threshold, selection_mode = _select_best_threshold_from_df(df)
+    selection_reason = (
+        "most_ok_statuses_in_flat_metrics" if best_threshold is not None else "no_thresholds"
+    )
+    df["selected_threshold_value"] = best_threshold
+    df["threshold_selection_mode"] = selection_mode
+    df["threshold_selection_reason"] = selection_reason
+
+    if best_threshold is not None:
+        prefix = f"threshold_{best_threshold:.6g}_"
+        metric_cols = [c for c in df.columns if c.startswith(prefix)]
+        for col in metric_cols:
+            base_name = col[len(prefix) :]
+            df[base_name] = df[col]
+        df["time_under_threshold_fraction"] = df.get("closed_fraction", float("nan"))
+
+        for idx, metrics in enumerate(threshold_store):
+            if best_threshold not in metrics:
+                continue
+            scalars = {
+                key: value
+                for key, value in metrics[best_threshold].items()
+                if not isinstance(value, (dict, list, tuple, np.ndarray))
+            }
+            scalars["time_under_threshold_fraction"] = scalars.get(
+                "closed_fraction", float("nan")
+            )
+            for key, value in scalars.items():
+                df.loc[idx, key] = value
+
+    return best_threshold
+
+
 def compute_blink_features(
     signal: np.ndarray,
     sfreq: float,
-    threshold: float,
+    threshold: float | Sequence[float],
     start_sample: int,
     end_sample: int,
-    lowest_point_sample: int | float | None,
-    left_interpolated_threshold: float | None,
-    right_interpolated_threshold: float | None,
     blink_type: Optional[str],
     feature_config: EARFeatureConfig,
+    plot_threshold: float | None = None,
 ) -> Dict[str, object]:
-    """Compute EAR-derived features for a single blink window and threshold.
+    """Compute EAR-derived features for a single blink window.
 
     Parameters
     ----------
@@ -412,29 +507,27 @@ def compute_blink_features(
         Full EAR signal in raw units.
     sfreq : float
         Sampling frequency in Hertz.
-    threshold : float
-        Threshold to evaluate for threshold-dependent metrics.
+    threshold : float | Sequence[float]
+        Single threshold or list of thresholds to evaluate for threshold-dependent metrics.
     start_sample : int
         Refined blink onset sample (inclusive).
     end_sample : int
         Refined blink offset sample (inclusive).
-    lowest_point_sample : int | float | None
-        Lowest EAR sample within the refined interval, if available.
-    left_interpolated_threshold : float | None
-        Interpolated downward threshold crossing time (seconds) if available.
-    right_interpolated_threshold : float | None
-        Interpolated upward threshold crossing time (seconds) if available.
     blink_type : str | None
         Optional blink label.
     feature_config : EARFeatureConfig
         Configuration controlling baseline window, slope search, percentiles, and classification.
+    plot_threshold : float | None
+        Optional explicit threshold to use for plotting/legacy columns. When ``None``,
+        auto-selection chooses among ``threshold`` candidates.
 
     Returns
     -------
     dict
         Structured features containing:
-        - threshold-independent metrics (e.g., baseline, min).
-        - threshold-dependent metrics tied to the provided ``threshold``.
+        - ``base_features``: threshold-independent metrics.
+        - ``thresholds``: per-threshold metric dictionaries keyed by value.
+        - ``threshold_metrics_flat``: flattened per-threshold metrics for easy tabular use.
         - ``blink_type_original``: passthrough of the blink label.
     """
 
@@ -450,28 +543,33 @@ def compute_blink_features(
         feature_config=feature_config,
     )
 
+    computed_thresholds = _normalize_thresholds(threshold, extra_threshold=plot_threshold)
+
+    threshold_metrics: Dict[float, Dict[str, float | str | bool]] = {}
     min_sample = int(transient["min_sample"])
     window = transient["window"]
-    threshold_metrics = _compute_threshold_features(
-        signal=signal,
-        sfreq=sfreq,
-        start_sample=start_sample,
-        end_sample=end_sample,
-        min_sample=min_sample,
-        lowest_point_sample=lowest_point_sample,
-        left_interpolated_threshold=left_interpolated_threshold,
-        right_interpolated_threshold=right_interpolated_threshold,
-        window=window,
-        threshold=threshold,
-        feature_config=feature_config,
-        blink_type=blink_type,
-    )
+    for theta in computed_thresholds:
+        threshold_metrics[theta] = _compute_threshold_features(
+            signal=signal,
+            sfreq=sfreq,
+            start_sample=start_sample,
+            end_sample=end_sample,
+            min_sample=min_sample,
+            window=window,
+            threshold=theta,
+            feature_config=feature_config,
+            blink_type=blink_type,
+        )
+
+    threshold_metrics_flat = _flatten_threshold_metrics(threshold_metrics)
 
     features: Dict[str, object] = {
-        **base_features,
-        **threshold_metrics,
+        "base_features": base_features,
+        "thresholds": threshold_metrics,
+        "threshold_metrics_flat": threshold_metrics_flat,
         "blink_type_original": blink_type,
     }
+    features.update(base_features)
 
     return features
 
@@ -483,8 +581,9 @@ class EARBlinkFeatureExtractor:
         self,
         signal: np.ndarray,
         sfreq: float,
-        threshold: float | None = None,
+        threshold: float | Sequence[float],
         feature_config: Optional[EARFeatureConfig] = None,
+        plot_threshold: float | None = None,
     ):
         """Create an EAR feature extractor.
 
@@ -494,15 +593,26 @@ class EARBlinkFeatureExtractor:
             Full EAR signal (raw units).
         sfreq : float
             Sampling frequency in Hertz.
-        threshold : float | None, optional
-            Optional fixed threshold to use when refined rows do not carry one.
+        threshold : float | Sequence[float]
+            Threshold(s) to evaluate for threshold-dependent metrics.
         feature_config : EARFeatureConfig, optional
             Configuration controlling baseline, percentiles, slopes, and classification.
+        plot_threshold : float | None
+            Explicit threshold to surface in legacy columns/plots; defaults to automatic
+            selection among ``threshold`` candidates.
         """
         self.signal = np.asarray(signal, dtype=float)
         self.sfreq = float(sfreq)
-        self.threshold = threshold
+        self.thresholds = threshold
+        self.plot_threshold = plot_threshold
         self.feature_config = feature_config or EARFeatureConfig()
+        self._threshold_store: List[Dict[float, Dict[str, float | str | bool]]] = []
+
+    @property
+    def threshold_store(self) -> List[Dict[float, Dict[str, float | str | bool]]]:
+        """Return per-row threshold metrics captured during the last table build."""
+
+        return list(self._threshold_store)
 
     def build_feature_table(self, refined: pd.DataFrame) -> pd.DataFrame:
         """Attach EAR-based blink features to refined annotation rows.
@@ -510,17 +620,16 @@ class EARBlinkFeatureExtractor:
         Parameters
         ----------
         refined : pd.DataFrame
-            DataFrame containing ``refined_start_sample`` and ``refined_end_sample``.
-            A ``threshold_value`` column is expected unless the extractor was created
-            with a fixed ``threshold``.
+            DataFrame containing at least ``refined_start_sample`` and
+            ``refined_end_sample`` columns (from refinement).
 
         Returns
         -------
         pd.DataFrame
-            Input rows augmented with base EAR metrics and threshold-dependent scalars.
+            Input rows augmented with base EAR metrics and flattened per-threshold columns.
         """
 
-        required_cols = {"refined_start_sample", "refined_end_sample", "refined_lowest_point_sample"}
+        required_cols = {"refined_start_sample", "refined_end_sample"}
         missing_cols = required_cols - set(refined.columns)
         if missing_cols:
             raise ValueError(
@@ -528,40 +637,27 @@ class EARBlinkFeatureExtractor:
             )
 
         records: List[Dict[str, float | str | bool]] = []
+        self._threshold_store = []
         for row in refined.to_dict(orient="records"):
-            threshold_value = row.get("threshold_value", self.threshold)
-            if threshold_value is None:
-                raise ValueError(
-                    "Refined annotations must include a 'threshold_value' column or the extractor "
-                    "must be initialized with a fixed threshold."
-                )
-            threshold_value = float(threshold_value)
-
             features = compute_blink_features(
                 signal=self.signal,
                 sfreq=self.sfreq,
-                threshold=threshold_value,
+                threshold=self.thresholds,
                 start_sample=int(row["refined_start_sample"]),
                 end_sample=int(row["refined_end_sample"]),
-                lowest_point_sample=row.get("refined_lowest_point_sample"),
-                left_interpolated_threshold=row.get("left_interpolated_threshold"),
-                right_interpolated_threshold=row.get("right_interpolated_threshold"),
                 blink_type=row.get("blink_type"),
                 feature_config=self.feature_config,
+                plot_threshold=self.plot_threshold,
             )
             combined = {
                 **row,
-                **{
-                    key: value
-                    for key, value in features.items()
-                    if not isinstance(value, (dict, list, tuple, np.ndarray))
-                },
-                "threshold_value": threshold_value,
+                **_prepare_table_features(features=features),
                 "refined_duration": float(
                     (row["refined_end_sample"] - row["refined_start_sample"]) / self.sfreq
                 ),
             }
             records.append(combined)
+            self._threshold_store.append(features.get("thresholds", {}))
 
         df = pd.DataFrame.from_records(records)
         logger.info("Computed EAR features for %s blinks", len(df))

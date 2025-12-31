@@ -41,10 +41,10 @@ def test_refined_flow_writes_csv_roundtrip(flow_results: pd.DataFrame, tmp_path:
 
     roundtrip = pd.read_csv(csv_path)
     assert len(roundtrip) == len(flow_results)
-    assert {"candidate_id", "refined_left_threshold", "refined_right_threshold"}.issubset(
+    assert {"candidate_id", "refined_left_zero", "refined_right_zero"}.issubset(
         roundtrip.columns
     )
-    assert roundtrip["threshold_crossing_found"].astype(bool).any()
+    assert roundtrip["zero_crossing_found"].astype(bool).any()
 
 
 def test_refined_flow_exports_metrics_csv(flow_results: pd.DataFrame, tmp_path: Path) -> None:

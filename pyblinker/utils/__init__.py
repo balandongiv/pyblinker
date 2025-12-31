@@ -24,7 +24,6 @@ from .refinement_utils import (
     refine_local_maximum_stub,
     slice_raw_into_mne_epochs_refine_annot,
 )
-from .ear import select_auto_threshold
 from .report_utils import add_blink_plots_to_report, generate_epoch_report
 from .statistics_utils import (
     calculate_good_ratio,
@@ -63,5 +62,4 @@ __all__ = [
     "get_max_blink",
     "average_velocity",
     "infer_modality",
-    "select_auto_threshold",
 ]

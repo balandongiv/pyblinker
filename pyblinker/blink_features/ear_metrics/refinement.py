@@ -8,8 +8,8 @@ the search is deterministically expanded outward up to a configurable limit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,6 @@ logger = get_logger(__name__)
 
 
 AnnotationUnit = Literal["seconds", "samples"]
-Number = Union[int, float]
 
 
 @dataclass
@@ -198,8 +197,8 @@ def _progressive_search(
     return {
         "refined_start_sample": int(refined_start),
         "refined_end_sample": int(refined_end),
-        "refined_left_threshold": int(refined_start),
-        "refined_right_threshold": int(refined_end),
+        "refined_left_zero": int(refined_start),
+        "refined_right_zero": int(refined_end),
         "search_window_start_sample": int(window_start),
         "search_window_end_sample": int(window_end),
         "search_window_start_time": float(window_start / sfreq),
@@ -235,131 +234,6 @@ class EARThresholdBlinkRefiner:
         self.sfreq = float(sfreq)
         self.config = config
 
-    def _compute_lowest_point_sample(self, start: int, end: int) -> float:
-        """Return the lowest EAR sample index within the refined interval.
-
-        The search is inclusive of ``start`` and ``end``. When the interval is invalid,
-        empty, or contains no finite values, ``nan`` is returned.
-        """
-
-        n_samples = self.signal.shape[0]
-        if start is None or end is None:
-            return float("nan")
-        try:
-            start_idx = int(start)
-            end_idx = int(end)
-        except (TypeError, ValueError):
-            return float("nan")
-
-        if start_idx < 0 or end_idx >= n_samples or start_idx > end_idx:
-            return float("nan")
-
-        window = self.signal[start_idx : end_idx + 1]
-        if window.size == 0:
-            return float("nan")
-
-        finite_mask = np.isfinite(window)
-        if not finite_mask.any():
-            return float("nan")
-
-        local_min = int(np.argmin(np.where(finite_mask, window, np.inf)))
-        return float(start_idx + local_min)
-
-    def _compute_interpolated_threshold_crossings(
-        self, refined_start_sample: int, refined_end_sample: int, lowest_point_sample: float
-    ) -> Dict[str, float | int | bool]:
-        """Return linearly interpolated threshold crossings around a refined blink.
-
-        Interpolated crossings are searched within a padded window surrounding the refined
-        start/end samples. Crossings must occur before and after the blink minimum,
-        respectively, and are computed using linear interpolation between adjacent samples.
-        Missing or invalid inputs produce per-side ``nan`` outputs without raising.
-        """
-
-        result: Dict[str, float | int | bool] = {
-            "left_interpolated_threshold": float("nan"),
-            "right_interpolated_threshold": float("nan"),
-            "left_interpolated_threshold_sample": float("nan"),
-            "right_interpolated_threshold_sample": float("nan"),
-            "left_interpolated_threshold_found": False,
-            "right_interpolated_threshold_found": False,
-            "interpolated_thresholds_found": False,
-        }
-
-        n_samples = self.signal.shape[0]
-        if not np.isfinite(lowest_point_sample):
-            return result
-
-        try:
-            refined_start = int(refined_start_sample)
-            refined_end = int(refined_end_sample)
-            min_sample = int(lowest_point_sample)
-        except (TypeError, ValueError):
-            return result
-
-        padding_samples = int(round(self.config.padding * self.sfreq))
-        search_start = max(0, refined_start - padding_samples)
-        search_end = min(n_samples - 1, refined_end + padding_samples)
-        if search_start >= search_end:
-            return result
-        if min_sample < search_start or min_sample > search_end:
-            return result
-
-        window = self.signal[search_start : search_end + 1]
-        if window.size < 2:
-            return result
-
-        distances = window - self.config.threshold
-        downward = np.flatnonzero((distances[:-1] > 0) & (distances[1:] <= 0))
-        upward = np.flatnonzero((distances[:-1] < 0) & (distances[1:] >= 0))
-
-        left_candidates = downward + search_start
-        right_candidates = upward + search_start
-
-        left_index = None
-        if left_candidates.size:
-            before_min = left_candidates[left_candidates <= min_sample]
-            if before_min.size:
-                left_index = int(before_min[-1])
-
-        right_index = None
-        if right_candidates.size:
-            after_min = right_candidates[right_candidates >= min_sample]
-            if after_min.size:
-                right_index = int(after_min[0])
-
-        if left_index is None or right_index is None:
-            return result
-
-        def interpolate(crossing_sample: int) -> Optional[float]:
-            local_idx = crossing_sample - search_start
-            denom = distances[local_idx] - distances[local_idx + 1]
-            if denom == 0:
-                return None
-            return crossing_sample + distances[local_idx] / denom
-
-        left_cross = interpolate(left_index)
-        right_cross = interpolate(right_index)
-        if left_cross is None or right_cross is None:
-            return result
-
-        left_time = left_cross / self.sfreq
-        right_time = right_cross / self.sfreq
-        left_sample_int = int(np.clip(round(left_cross), 0, n_samples - 1))
-        right_sample_int = int(np.clip(round(right_cross), 0, n_samples - 1))
-        result.update(
-            {
-                "left_interpolated_threshold": float(left_time),
-                "right_interpolated_threshold": float(right_time),
-                "left_interpolated_threshold_sample": int(left_sample_int),
-                "right_interpolated_threshold_sample": int(right_sample_int),
-                "left_interpolated_threshold_found": True,
-                "right_interpolated_threshold_found": True,
-                "interpolated_thresholds_found": True,
-            }
-        )
-        return result
-
     def refine_annotation_row(
         self, row: Dict[str, float | str], candidate_id: int
     ) -> Dict[str, float | int | str | bool]:
@@ -375,8 +249,7 @@ class EARThresholdBlinkRefiner:
         Returns
         -------
         dict
-            Refined timing, offsets, lowest-point sample index, window metadata, and
-            search diagnostics.
+            Refined timing, offsets, window metadata, and search diagnostics.
         """
 
         coarse_onset = float(row["onset"])
@@ -402,10 +275,6 @@ class EARThresholdBlinkRefiner:
         refined_start_sample = int(search_result["refined_start_sample"])
         refined_end_sample = int(search_result["refined_end_sample"])
 
-        refined_lowest_point_sample = self._compute_lowest_point_sample(
-            refined_start_sample, refined_end_sample
-        )
-
         refined_onset_time = refined_start_sample / self.sfreq
         refined_offset_time = refined_end_sample / self.sfreq
 
@@ -424,10 +293,9 @@ class EARThresholdBlinkRefiner:
             "offset_offset_seconds": float(refined_offset_time - coarse_offset_time),
             "refined_start_sample": refined_start_sample,
             "refined_end_sample": refined_end_sample,
-            "refined_lowest_point_sample": refined_lowest_point_sample,
             "coarse_start_sample": int(coarse_start_sample),
             "coarse_end_sample": int(coarse_end_sample),
-            "threshold_crossing_found": bool(search_result["refinement_succeeded"]),
+            "zero_crossing_found": bool(search_result["refinement_succeeded"]),
             **search_result,
         }
 
@@ -454,13 +322,6 @@ class EARThresholdBlinkRefiner:
         records: List[Dict[str, float | int | str | bool]] = []
         for idx, row in enumerate(annotations.itertuples(index=False)):
             record = self.refine_annotation_row(row._asdict(), idx)
-            record.update(
-                self._compute_interpolated_threshold_crossings(
-                    refined_start_sample=record["refined_start_sample"],
-                    refined_end_sample=record["refined_end_sample"],
-                    lowest_point_sample=record["refined_lowest_point_sample"],
-                )
-            )
             records.append(record)
 
         refined = pd.DataFrame.from_records(records)
@@ -468,7 +329,6 @@ class EARThresholdBlinkRefiner:
             refined["extension_seconds_used"] > 0
         )
         refined["refinement_fallback_to_coarse"] = ~refined["refinement_succeeded"]
-        refined["threshold_value"] = float(self.config.threshold)
 
         logger.info(
             "Refined %s coarse blink annotations (threshold=%s)",
@@ -476,50 +336,3 @@ class EARThresholdBlinkRefiner:
             self.config.threshold,
         )
         return refined
-
-
-def refine_annotations_for_threshold(
-    signal: np.ndarray,
-    sfreq: float,
-    annotations: pd.DataFrame,
-    base_config: EARRefinementConfig,
-    candidate_threshold: Number,
-    threshold_index: Optional[int] = None,
-) -> pd.DataFrame:
-    """Refine annotations for a single threshold value.
-
-    Parameters
-    ----------
-    signal : np.ndarray
-        Full EAR signal (raw units).
-    sfreq : float
-        Sampling frequency in Hertz.
-    annotations : pd.DataFrame
-        Coarse blink annotations with ``onset`` and ``duration`` columns.
-    base_config : EARRefinementConfig
-        Baseline configuration that will be copied for the provided threshold.
-    candidate_threshold : float | int
-        Threshold value to evaluate.
-    threshold_index : int | None, optional
-        Optional index to preserve caller-provided ordering across thresholds.
-
-    Returns
-    -------
-    pd.DataFrame
-        Refinement table containing the ``threshold_value`` and ``threshold_index`` columns
-        identifying the threshold used for each row.
-    """
-
-    theta = float(candidate_threshold)
-    threshold_config = replace(base_config, threshold=theta)
-    refiner = EARThresholdBlinkRefiner(signal, sfreq, threshold_config)
-    refined = refiner.refine_annotations(annotations)
-    refined["threshold_value"] = theta
-    refined["threshold_index"] = int(threshold_index) if threshold_index is not None else 0
-
-    logger.info(
-        "Refined annotations for threshold=%s; resulting rows=%s",
-        theta,
-        len(refined),
-    )
-    return refined
