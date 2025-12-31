@@ -12,177 +12,6 @@ import numpy as np
 import pandas as pd
 
 
-def _coerce_boolean(series: pd.Series) -> pd.Series:
-    """Convert a series to pandas' nullable boolean dtype without treating NaNs as True."""
-
-    def _to_bool(value: object) -> bool | pd.NA:
-        if pd.isna(value):
-            return pd.NA
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, np.integer)):
-            return bool(value)
-        if isinstance(value, (float, np.floating)):
-            if np.isnan(value):
-                return pd.NA
-            return bool(value)
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {"true", "t", "yes", "y", "1"}:
-                return True
-            if normalized in {"false", "f", "no", "n", "0"}:
-                return False
-        return pd.NA
-
-    if series is None:
-        return pd.Series(dtype="boolean")
-    return series.apply(_to_bool).astype("boolean")
-
-
-def _safe_median(series: pd.Series) -> float | None:
-    """Return the median of a numeric series or None when unavailable."""
-
-    numeric = pd.to_numeric(series, errors="coerce").dropna()
-    if numeric.empty:
-        return None
-    return float(numeric.median())
-
-
-def _format_count_fraction(count: int, total: int) -> str:
-    """Return a human-readable count with percentage (total-based)."""
-
-    if total <= 0:
-        return "0 (0.0%)"
-    return f"{count} ({(count / total) * 100:.1f}%)"
-
-
-def _format_optional(value: float | None, fmt: str = "{:.4f}") -> str:
-    """Format an optional numeric value or return an empty string when missing."""
-
-    if value is None:
-        return ""
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return ""
-    if not np.isfinite(numeric):
-        return ""
-    return fmt.format(numeric)
-
-
-def _compute_threshold_statistics(results: pd.DataFrame) -> list[dict[str, object]]:
-    """Compute per-threshold success and distribution statistics for reporting."""
-
-    if "threshold_value" not in results.columns or results.empty:
-        return []
-
-    stats: list[dict[str, object]] = []
-    for theta, group in results.groupby("threshold_value"):
-        total = len(group)
-        crossing_series = _coerce_boolean(group.get("threshold_crossing_found", pd.Series()))
-        interp_series = _coerce_boolean(group.get("interpolated_thresholds_found", pd.Series()))
-        left_interp_series = _coerce_boolean(
-            group.get("left_interpolated_threshold_found", pd.Series())
-        )
-        right_interp_series = _coerce_boolean(
-            group.get("right_interpolated_threshold_found", pd.Series())
-        )
-
-        crossing_success = int(crossing_series.dropna().sum()) if not crossing_series.empty else 0
-        crossing_valid = int(crossing_series.notna().sum()) if not crossing_series.empty else 0
-        crossing_rate = crossing_success / total if total else 0.0
-        crossing_valid_rate = crossing_success / crossing_valid if crossing_valid else 0.0
-
-        interp_success = int(interp_series.dropna().sum()) if not interp_series.empty else 0
-        interp_valid = int(interp_series.notna().sum()) if not interp_series.empty else 0
-        interp_rate = interp_success / total if total else 0.0
-        interp_valid_rate = interp_success / interp_valid if interp_valid else 0.0
-
-        left_found = int(left_interp_series.dropna().sum()) if not left_interp_series.empty else 0
-        right_found = (
-            int(right_interp_series.dropna().sum()) if not right_interp_series.empty else 0
-        )
-        left_missing = max(total - left_found, 0)
-        right_missing = max(total - right_found, 0)
-
-        stats.append(
-            {
-                "threshold_value": float(theta),
-                "total_candidates": total,
-                "crossing_success": crossing_success,
-                "crossing_valid": crossing_valid,
-                "crossing_success_rate": crossing_rate,
-                "crossing_valid_rate": crossing_valid_rate,
-                "interpolated_success": interp_success,
-                "interpolated_valid": interp_valid,
-                "interpolated_success_rate": interp_rate,
-                "interpolated_valid_rate": interp_valid_rate,
-                "left_missing": left_missing,
-                "right_missing": right_missing,
-                "left_missing_fraction": left_missing / total if total else 0.0,
-                "right_missing_fraction": right_missing / total if total else 0.0,
-                "median_refined_duration": _safe_median(group.get("refined_duration", pd.Series())),
-                "median_blink_depth": _safe_median(group.get("ear_blink_depth", pd.Series())),
-                "median_closed_duration": _safe_median(
-                    group.get("closed_duration_seconds", pd.Series())
-                ),
-                "median_closed_fraction": _safe_median(group.get("closed_fraction", pd.Series())),
-                "classification_counts": group.get("blink_classification", pd.Series())
-                .dropna()
-                .astype(str)
-                .value_counts()
-                .to_dict(),
-                "computed_classification_counts": group.get("blink_classification_computed", pd.Series())
-                .dropna()
-                .astype(str)
-                .value_counts()
-                .to_dict(),
-            }
-        )
-
-    stats.sort(key=lambda row: float(row["threshold_value"]))
-    return stats
-
-
-def _select_best_threshold(stats: list[dict[str, object]]) -> dict[str, object] | None:
-    """Select the best threshold deterministically based on success and stability metrics."""
-
-    if not stats:
-        return None
-
-    median_theta = float(np.median([row["threshold_value"] for row in stats]))
-
-    def _score(row: dict[str, object]) -> tuple:
-        success_rate = float(row.get("crossing_success_rate") or 0.0)
-        interp_rate = float(row.get("interpolated_success_rate") or 0.0)
-        left_missing = float(row.get("left_missing_fraction") or 0.0)
-        right_missing = float(row.get("right_missing_fraction") or 0.0)
-        blink_depth = row.get("median_blink_depth")
-        blink_depth_score = -np.inf if blink_depth is None else float(blink_depth)
-        duration = row.get("median_refined_duration")
-        duration_score = -np.inf if duration is None else float(duration)
-        central_bias = abs(float(row["threshold_value"]) - median_theta)
-        return (
-            -success_rate,
-            -interp_rate,
-            left_missing,
-            right_missing,
-            -blink_depth_score,
-            -duration_score,
-            central_bias,
-            float(row["threshold_value"]),
-        )
-
-    ranked = sorted(stats, key=_score)
-    best = dict(ranked[0])
-    best["tie_break_rule"] = (
-        "Ties broken by higher interpolated success, fewer missing crossings per side, "
-        "deeper median blink depth, longer refined durations, and proximity to the median "
-        "candidate threshold."
-    )
-    return best
-
-
 def _format_metrics(row: pd.Series, keys: Sequence[str]) -> str:
     """Format selected metrics from a row into human-readable text.
 
@@ -385,8 +214,6 @@ def build_refined_blink_report(
     )
 
     for idx, row in enumerate(rows):
-        interpolated_left_sample_attr = getattr(row, "ear_interpolated_left_sample", None)
-        interpolated_right_sample_attr = getattr(row, "ear_interpolated_right_sample", None)
         left = int(
             getattr(
                 row,
@@ -409,28 +236,15 @@ def build_refined_blink_report(
                 ),
             )
         )
-        if interpolated_left_sample_attr is not None and not pd.isna(interpolated_left_sample_attr):
-            left = int(interpolated_left_sample_attr)
-        if (
-            interpolated_right_sample_attr is not None
-            and not pd.isna(interpolated_right_sample_attr)
-        ):
-            right = int(interpolated_right_sample_attr)
         start = max(0, left - pad_samples)
         end = min(n_samples - 1, right + pad_samples)
 
-        raw_interp_left_time = getattr(row, "ear_interpolated_left_time", None)
-        raw_interp_right_time = getattr(row, "ear_interpolated_right_time", None)
-        left_time_attr = raw_interp_left_time
-        if left_time_attr is None:
-            left_time_attr = getattr(row, "ear_threshold_left_time", None)
+        left_time_attr = getattr(row, "ear_threshold_left_time", None)
         left_time = float(left_time_attr) if left_time_attr is not None else left / sfreq
         if not np.isfinite(left_time):
             left_time = left / sfreq
 
-        right_time_attr = raw_interp_right_time
-        if right_time_attr is None:
-            right_time_attr = getattr(row, "ear_threshold_right_time", None)
+        right_time_attr = getattr(row, "ear_threshold_right_time", None)
         right_time = float(right_time_attr) if right_time_attr is not None else right / sfreq
         if not np.isfinite(right_time):
             right_time = right / sfreq
@@ -455,13 +269,7 @@ def build_refined_blink_report(
         window_times = np.arange(start, end + 1, dtype=float) / sfreq
         window_signal = signal[start : end + 1]
 
-        fig, (ax, legend_ax) = plt.subplots(
-            1,
-            2,
-            figsize=(10, 3),
-            gridspec_kw={"width_ratios": [5, 1]},
-        )
-        legend_ax.axis("off")
+        fig, ax = plt.subplots(figsize=(9, 3))
         if plot_signal_as_scatter:
             ax.scatter(
                 window_times,
@@ -488,6 +296,9 @@ def build_refined_blink_report(
                 color="C0",
                 label=channel_name,
             )
+        ax.axvline(left_time, color="C1", linestyle="--", label="Left threshold crossing")
+        ax.axvline(right_time, color="C2", linestyle="--", label="Right threshold crossing")
+
         chosen_threshold = representative_threshold
         plot_threshold_origin = threshold_origin
         if chosen_threshold is None:
@@ -515,80 +326,6 @@ def build_refined_blink_report(
         if min_sample is not None and 0 <= min_sample < n_samples:
             min_value = float(signal[min_sample])
 
-        def _safe_time(value: float | None) -> float | None:
-            if value is None:
-                return None
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                return None
-            return numeric if np.isfinite(numeric) else None
-
-        interpolated_left_time_value = _safe_time(raw_interp_left_time)
-        interpolated_right_time_value = _safe_time(raw_interp_right_time)
-        interpolated_times_available = (
-            interpolated_left_time_value is not None and interpolated_right_time_value is not None
-        )
-
-        def _sample_value(sample: float | int | None) -> tuple[float, float] | None:
-            if sample is None:
-                return None
-            try:
-                idx = int(sample)
-            except (TypeError, ValueError):
-                return None
-            if idx < 0 or idx >= n_samples:
-                return None
-            time = idx / sfreq
-            value = float(signal[idx])
-            if not np.isfinite(value):
-                return None
-            return time, value
-
-        refined_landmarks: list[tuple[str, tuple[float, float]]] = []
-        for label, sample in (
-            ("Refined start", getattr(row, "refined_start_sample", None)),
-            ("Refined end", getattr(row, "refined_end_sample", None)),
-            ("Refined lowest point", getattr(row, "refined_lowest_point_sample", None)),
-        ):
-            pair = _sample_value(sample)
-            if pair is not None:
-                refined_landmarks.append((label, pair))
-
-        interpolated_markers: list[tuple[str, tuple[float, float]]] = []
-        for label, sample, time_value in (
-            (
-                "Left interpolated threshold",
-                getattr(row, "ear_interpolated_left_sample", None),
-                interpolated_left_time_value,
-            ),
-            (
-                "Right interpolated threshold",
-                getattr(row, "ear_interpolated_right_sample", None),
-                interpolated_right_time_value,
-            ),
-        ):
-            time_point = _safe_time(time_value)
-            value_at_time: float | None = None
-            if time_point is None:
-                sample_point = _sample_value(sample)
-                if sample_point is None:
-                    continue
-                time_point, sample_value = sample_point
-                value_at_time = sample_value
-            else:
-                sample_point = _sample_value(sample)
-                if sample_point is not None:
-                    _, sample_value = sample_point
-                    value_at_time = sample_value
-            if time_point is None:
-                continue
-            if chosen_threshold is not None:
-                value_at_time = float(chosen_threshold)
-            if value_at_time is None:
-                continue
-            interpolated_markers.append((label, (time_point, float(value_at_time))))
-
         crossing_times = [left_time, right_time]
         if chosen_threshold is not None:
             crossing_values = [float(chosen_threshold), float(chosen_threshold)]
@@ -602,39 +339,26 @@ def build_refined_blink_report(
             crossing_times.insert(1, float(min_time))
             crossing_values.insert(1, min_value)
 
-        if refined_landmarks:
-            colors = {
-                "Refined start": "C9",
-                "Refined end": "C4",
-                "Refined lowest point": "C7",
-            }
-            for label, (time, value) in refined_landmarks:
-                ax.scatter(
-                    [time],
-                    [value],
-                    color=colors.get(label, "C6"),
-                    marker="D",
-                    s=36,
-                    zorder=6,
-                    label=label,
-                )
+        if mark_threshold_crossings:
+            ax.scatter(
+                crossing_times,
+                crossing_values,
+                color="black",
+                zorder=5,
+                s=32,
+                marker="*",
+                alpha=0.45,
+                label="Threshold landmarks",
+            )
 
-        if interpolated_markers:
-            marker_styles = {
-                "Left interpolated threshold": ("^", "C1"),
-                "Right interpolated threshold": ("v", "C2"),
-            }
-            for label, (time, value) in interpolated_markers:
-                marker, color = marker_styles.get(label, ("x", "0.3"))
-                ax.scatter(
-                    [time],
-                    [value],
-                    color=color,
-                    marker=marker,
-                    s=46,
-                    zorder=6,
-                    label=label,
-                )
+        ax.annotate(
+            "Left threshold crossing",
+            xy=(left_time, crossing_values[0]),
+            xytext=(left_time, crossing_values[0] + y_offset),
+            arrowprops=dict(arrowstyle="->", color="C1"),
+            fontsize=8,
+            ha="center",
+        )
 
         if min_time is not None and min_value is not None:
             ax.annotate(
@@ -645,6 +369,15 @@ def build_refined_blink_report(
                 fontsize=8,
                 ha="center",
             )
+
+        ax.annotate(
+            "Right threshold crossing",
+            xy=(right_time, crossing_values[-1]),
+            xytext=(right_time, crossing_values[-1] - y_offset),
+            arrowprops=dict(arrowstyle="->", color="C2"),
+            fontsize=8,
+            ha="center",
+        )
 
         # Maximum absolute amplitude within the window.
         max_idx = int(np.argmax(np.abs(window_signal)))
@@ -709,28 +442,10 @@ def build_refined_blink_report(
             handles.extend(overlay_handles)
             labels.extend(overlay_labels)
         if handles:
-            seen = set()
-            unique_handles = []
-            unique_labels = []
-            for handle, label in zip(handles, labels):
-                if label in seen:
-                    continue
-                seen.add(label)
-                unique_handles.append(handle)
-                unique_labels.append(label)
-            legend_ax.legend(
-                unique_handles,
-                unique_labels,
-                loc="upper left",
-                fontsize=8,
-                frameon=True,
-                borderpad=0.6,
-                labelspacing=0.3,
-            )
+            ax.legend(handles, labels, loc="upper right", fontsize=8)
 
-        caption_prefix = "Interpolated threshold crossings" if interpolated_times_available else "Threshold crossings"
         caption = (
-            f"{caption_prefix} at {left_time:.3f}s and {right_time:.3f}s. "
+            f"Threshold crossings at {left_time:.3f}s and {right_time:.3f}s. "
             f"Segment {start}–{end} ({(end - start) / sfreq:.3f}s)."
         )
         if chosen_threshold is not None:
@@ -738,19 +453,6 @@ def build_refined_blink_report(
             caption += f" Threshold value: {float(chosen_threshold):.3f}{suffix}."
         if min_time is not None:
             caption += f" Minimum EAR at {float(min_time):.3f}s."
-        refined_time_lookup = {label: time for label, (time, _) in refined_landmarks}
-        start_time_caption = refined_time_lookup.get("Refined start")
-        end_time_caption = refined_time_lookup.get("Refined end")
-        lowest_time_caption = refined_time_lookup.get("Refined lowest point")
-        refined_parts = []
-        if start_time_caption is not None:
-            refined_parts.append(f"Refined start at {start_time_caption:.3f}s")
-        if lowest_time_caption is not None:
-            refined_parts.append(f"Refined lowest point at {lowest_time_caption:.3f}s")
-        if end_time_caption is not None:
-            refined_parts.append(f"Refined end at {end_time_caption:.3f}s")
-        if refined_parts:
-            caption += " " + "; ".join(refined_parts) + "."
         report.add_figure(
             fig=fig,
             title=f"Blink {idx}",
@@ -769,9 +471,6 @@ def build_refined_blink_report(
         reason = "max_plots limit" if max_plots is not None else "not plotted"
         summary_rows.append((f"Skipped ({reason})", skipped_count))
     summary_rows.append(("Sampling rate (Hz)", f"{sampling_rate:.2f}"))
-    threshold_stats = _compute_threshold_statistics(results)
-    best_threshold = _select_best_threshold(threshold_stats)
-
     if threshold_crossing_failures is not None:
         summary_rows.append(("Threshold crossing failures", threshold_crossing_failures))
     if representative_threshold is not None:
@@ -779,13 +478,6 @@ def build_refined_blink_report(
             "Plot threshold (user-provided)" if threshold_origin == "user" else "Plot threshold (auto mode)"
         )
         summary_rows.append((label, f"{float(representative_threshold):.3f}"))
-    if best_threshold is not None:
-        summary_rows.append(
-            (
-                "Best candidate threshold (stats)",
-                f"{best_threshold['threshold_value']:.3f} (highest success + stability)",
-            )
-        )
     if {"selected_threshold_value", "threshold_selection_mode"} <= set(results.columns):
         mode_counts = results["threshold_selection_mode"].astype(str).value_counts()
         if not mode_counts.empty:
@@ -810,64 +502,6 @@ def build_refined_blink_report(
             f"<td style='padding:4px;border-top:1px solid #ddd;'>{value}</td></tr>"
         )
     summary_html += "</tbody></table>"
-
-    if threshold_stats:
-        summary_html += "<h4>Per-threshold success statistics</h4>"
-        summary_html += (
-            "<table style='border-collapse: collapse;'>"
-            "<thead><tr>"
-            "<th style='text-align:left;padding:4px;'>Threshold</th>"
-            "<th style='text-align:left;padding:4px;'>Candidates</th>"
-            "<th style='text-align:left;padding:4px;'>Crossing success</th>"
-            "<th style='text-align:left;padding:4px;'>Interpolated success</th>"
-            "<th style='text-align:left;padding:4px;'>Left missing</th>"
-            "<th style='text-align:left;padding:4px;'>Right missing</th>"
-            "<th style='text-align:left;padding:4px;'>Median refined duration (s)</th>"
-            "<th style='text-align:left;padding:4px;'>Median blink depth</th>"
-            "<th style='text-align:left;padding:4px;'>Median closed duration (s)</th>"
-            "<th style='text-align:left;padding:4px;'>Median closed fraction</th>"
-            "</tr></thead><tbody>"
-        )
-        for stat in threshold_stats:
-            refined_duration = _format_optional(stat["median_refined_duration"])
-            blink_depth = _format_optional(stat["median_blink_depth"])
-            closed_duration = _format_optional(stat["median_closed_duration"])
-            closed_fraction = _format_optional(stat["median_closed_fraction"])
-            summary_html += (
-                "<tr>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{stat['threshold_value']:.3f}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{stat['total_candidates']}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{_format_count_fraction(stat['crossing_success'], stat['total_candidates'])}"
-                f" (valid-only: {_format_count_fraction(stat['crossing_success'], stat['crossing_valid'])})</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{_format_count_fraction(stat['interpolated_success'], stat['total_candidates'])}"
-                f" (valid-only: {_format_count_fraction(stat['interpolated_success'], stat['interpolated_valid'])})</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{_format_count_fraction(stat['left_missing'], stat['total_candidates'])}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{_format_count_fraction(stat['right_missing'], stat['total_candidates'])}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{refined_duration}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{blink_depth}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{closed_duration}</td>"
-                f"<td style='padding:4px;border-top:1px solid #ddd;'>{closed_fraction}</td>"
-                "</tr>"
-            )
-        summary_html += "</tbody></table>"
-
-    if best_threshold is not None:
-        rationale_parts = [
-            f"Selected threshold: {best_threshold['threshold_value']:.3f} because it maximized crossing success and interpolated crossing success while minimizing missing crossings per side",
-            f"Crossing success: {_format_count_fraction(best_threshold['crossing_success'], best_threshold['total_candidates'])}",
-            f"Interpolated success: {_format_count_fraction(best_threshold['interpolated_success'], best_threshold['total_candidates'])}",
-            f"Left/right missing fractions: {best_threshold['left_missing_fraction']:.2%}, {best_threshold['right_missing_fraction']:.2%}",
-        ]
-        if best_threshold.get("median_blink_depth") is not None:
-            rationale_parts.append(f"Median blink depth: {best_threshold['median_blink_depth']:.4f}")
-        if best_threshold.get("median_refined_duration") is not None:
-            rationale_parts.append(
-                f"Median refined duration: {best_threshold['median_refined_duration']:.4f}s"
-            )
-        rationale_parts.append(f"Tie-break rule: {best_threshold['tie_break_rule']}")
-        summary_html += "<h4>Threshold selection rationale</h4>"
-        summary_html += "<p>" + "; ".join(rationale_parts) + ".</p>"
-
     report.add_html(
         title="Refined blink summary",
         html=summary_html,
