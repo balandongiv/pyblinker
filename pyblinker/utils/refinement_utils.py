@@ -12,6 +12,7 @@ from tqdm import tqdm
 from pyblinker.logging import get_logger
 from pyblinker.blink_features.ear_metrics.refinement import (
     EARRefinementConfig,
+    EARThresholdBlinkRefiner,
     _progressive_search,
 )
 
@@ -57,10 +58,16 @@ def _init_metadata(
         md["blink_onset_extremum_ear"] = [np.nan] * n_epochs
         md["blink_outer_start_ear"] = [np.nan] * n_epochs
         md["blink_outer_end_ear"] = [np.nan] * n_epochs
+        md["refined_lowest_point_sample"] = [np.nan] * n_epochs
         md["refined_start_sample"] = [np.nan] * n_epochs
         md["refined_end_sample"] = [np.nan] * n_epochs
         md["refined_left_threshold"] = [np.nan] * n_epochs
         md["refined_right_threshold"] = [np.nan] * n_epochs
+        md["left_interpolated_threshold"] = [np.nan] * n_epochs
+        md["right_interpolated_threshold"] = [np.nan] * n_epochs
+        md["left_interpolated_threshold_sample"] = [np.nan] * n_epochs
+        md["right_interpolated_threshold_sample"] = [np.nan] * n_epochs
+        md["interpolated_thresholds_found"] = [None] * n_epochs
         md["search_window_start_sample"] = [np.nan] * n_epochs
         md["search_window_end_sample"] = [np.nan] * n_epochs
         md["search_window_start_time"] = [np.nan] * n_epochs
@@ -171,6 +178,7 @@ def _refine_ear_blinks_for_epoch(
     ear_config = (segmentation_config or {}).get("ear", {}) if segmentation_config is not None else {}
     seg_type = _select_seg_type(ear_config.get("seg_type"))
     use_threshold_interpolation = seg_type == "threshold_interpolation"
+    refiner: EARThresholdBlinkRefiner | None = None
 
     def _fallback_refinement(coarse_start: int, coarse_end: int) -> Dict[str, Any]:
         n = len(segment)
@@ -219,6 +227,7 @@ def _refine_ear_blinks_for_epoch(
         }
         if override_fields:
             config = replace(config, **override_fields)
+        refiner = EARThresholdBlinkRefiner(segment, sfreq, config)
 
     refinements: List[Dict[str, Any]] = []
     for coarse_start, coarse_end in zip(blink_starts, blink_ends):
@@ -239,6 +248,23 @@ def _refine_ear_blinks_for_epoch(
             refinement["refined_start_sample"],
             refinement["refined_end_sample"],
         )
+        refinement["refined_lowest_point_sample"] = refinement["refined_trough_sample"]
+
+        if refiner is not None:
+            refinement.update(
+                refiner._compute_interpolated_threshold_crossings(  # pylint: disable=protected-access
+                    refined_start_sample=refinement["refined_start_sample"],
+                    refined_end_sample=refinement["refined_end_sample"],
+                    lowest_point_sample=refinement["refined_lowest_point_sample"],
+                )
+            )
+        else:
+            refinement.setdefault("left_interpolated_threshold", float("nan"))
+            refinement.setdefault("right_interpolated_threshold", float("nan"))
+            refinement.setdefault("left_interpolated_threshold_sample", float("nan"))
+            refinement.setdefault("right_interpolated_threshold_sample", float("nan"))
+            refinement.setdefault("interpolated_thresholds_found", False)
+
         refinements.append(refinement)
 
     return refinements
@@ -309,17 +335,37 @@ def _append_ear_refinements(
         start = refinement["refined_start_sample"]
         end = refinement["refined_end_sample"]
         trough = refinement.get("refined_trough_sample")
+        lowest_point = refinement.get("refined_lowest_point_sample", trough)
+        left_interp = refinement.get("left_interpolated_threshold")
+        right_interp = refinement.get("right_interpolated_threshold")
+        left_interp_sample = refinement.get("left_interpolated_threshold_sample")
+        right_interp_sample = refinement.get("right_interpolated_threshold_sample")
 
         peaks.append(int(trough) if trough is not None else int(start))
+
+        left_time = float(left_interp) if left_interp is not None else float("nan")
+        right_time = float(right_interp) if right_interp is not None else float("nan")
+        if not np.isfinite(left_time) or not np.isfinite(right_time):
+            left_time = start / sfreq
+            right_time = end / sfreq
+        duration_time = max(0.0, right_time - left_time)
+        extremum_time = (
+            float(lowest_point) / sfreq if lowest_point is not None else start / sfreq
+        )
+
         md["blink_onset_ear"][epoch_index] = append_to_slot(
-            md["blink_onset_ear"][epoch_index], start / sfreq
+            md["blink_onset_ear"][epoch_index], left_time
         )
         md["blink_duration_ear"][epoch_index] = append_to_slot(
-            md["blink_duration_ear"][epoch_index], max(0.0, (end - start) / sfreq)
+            md["blink_duration_ear"][epoch_index], duration_time
         )
         md["blink_onset_extremum_ear"][epoch_index] = append_to_slot(
             md["blink_onset_extremum_ear"][epoch_index],
-            (trough if trough is not None else start) / sfreq,
+            extremum_time,
+        )
+        md["refined_lowest_point_sample"][epoch_index] = append_to_slot(
+            md["refined_lowest_point_sample"][epoch_index],
+            int(lowest_point) if lowest_point is not None and np.isfinite(lowest_point) else np.nan,
         )
         md["refined_start_sample"][epoch_index] = append_to_slot(
             md["refined_start_sample"][epoch_index], int(start)
@@ -332,6 +378,30 @@ def _append_ear_refinements(
         )
         md["refined_right_threshold"][epoch_index] = append_to_slot(
             md["refined_right_threshold"][epoch_index], int(refinement["refined_right_threshold"])
+        )
+        md["left_interpolated_threshold"][epoch_index] = append_to_slot(
+            md["left_interpolated_threshold"][epoch_index],
+            float(left_interp) if left_interp is not None else float("nan"),
+        )
+        md["right_interpolated_threshold"][epoch_index] = append_to_slot(
+            md["right_interpolated_threshold"][epoch_index],
+            float(right_interp) if right_interp is not None else float("nan"),
+        )
+        md["left_interpolated_threshold_sample"][epoch_index] = append_to_slot(
+            md["left_interpolated_threshold_sample"][epoch_index],
+            float(left_interp_sample)
+            if left_interp_sample is not None and np.isfinite(left_interp_sample)
+            else float("nan"),
+        )
+        md["right_interpolated_threshold_sample"][epoch_index] = append_to_slot(
+            md["right_interpolated_threshold_sample"][epoch_index],
+            float(right_interp_sample)
+            if right_interp_sample is not None and np.isfinite(right_interp_sample)
+            else float("nan"),
+        )
+        md["interpolated_thresholds_found"][epoch_index] = append_to_slot(
+            md["interpolated_thresholds_found"][epoch_index],
+            bool(refinement.get("interpolated_thresholds_found", False)),
         )
         md["search_window_start_sample"][epoch_index] = append_to_slot(
             md["search_window_start_sample"][epoch_index],
@@ -460,7 +530,13 @@ def slice_raw_into_mne_epochs_refine_annot(
             )
 
         if have_ear and data_ear is not None:
-            seg = data_ear[ei].mean(axis=0)
+            seg_raw = data_ear[ei]
+            if seg_raw.ndim == 2 and seg_raw.shape[0] > 1:
+                raise ValueError(
+                    "EAR refinement expects a single-channel signal per epoch; "
+                    f"received shape {seg_raw.shape}. Provide a single EAR channel."
+                )
+            seg = seg_raw.reshape(-1)
             refinements = _refine_ear_blinks_for_epoch(
                 seg,
                 blink_starts,

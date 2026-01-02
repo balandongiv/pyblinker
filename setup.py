@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='pyblinker',
-      version='0.0.37',
+      version='0.0.38',
       description='An open-source alternative to MATLAB BLINKER, integrated with MNE-Python, supporting multimodal biosignal research with flexible workflows, reproducible metrics, and enhanced accessibility.',
       author='rpb',
       packages=['pyblinker','pyblinker.utilities',
