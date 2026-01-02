@@ -2,10 +2,10 @@ from pathlib import Path
 
 import mne
 from pyblinker.blink_features.energy.energy_features import compute_energy_features
+from pyblinker.utils.evaluation import mat_data
 from pyblinker.utils.refinement_utils import (
 	slice_raw_into_mne_epochs_refine_annot,
 	)
-from test.blink_features.utils.helpers import assert_df_has_columns
 
 # -----------------------------------------------------------------------------
 # Project paths
@@ -35,8 +35,6 @@ raw = mne.io.read_raw_fif(
 
 # Attach manual CSV annotations
 # CSV columns: onset (sec), duration (sec), description (label)
-from pyblinker.utils.evaluation import mat_data
-
 raw.set_annotations(
 	mat_data.read_annotations_as_mne(csv_path)
 	)
@@ -84,4 +82,3 @@ df = compute_energy_features(
 	epochs,
 	picks=channel,
 	)
-

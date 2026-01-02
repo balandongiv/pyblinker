@@ -52,10 +52,9 @@ class TestEnergyFeatures(unittest.TestCase):
         channel = "EAR-avg_ear"
         if channel not in raw.ch_names:
             raise ValueError(f"Required channel '{channel}' not found in raw data.")
-        # ear_raw = raw.copy()
-        raw.pick(channel)
+        raw.pick([channel, "EEG-E8", "EOG-EEG-eog_vert_left"])
         self.epochs = slice_raw_into_mne_epochs_refine_annot(
-            raw, epoch_len=30.0, blink_label=None, progress_bar=False,ear_threshold=0.22
+            raw, epoch_len=30.0, blink_label=None, progress_bar=False, ear_threshold=0.22
         )
 
 
