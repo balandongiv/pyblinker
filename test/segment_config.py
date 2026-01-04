@@ -19,6 +19,10 @@ def build_segment_config(
     eeg_channel: str | None = DEFAULT_EEG_CHANNEL,
     eog_channel: str | None = DEFAULT_EOG_CHANNEL,
     base_config: Dict[str, Any] | None = None,
+    include_ear: bool = True,
+    include_eeg: bool = True,
+    include_eog: bool = True,
+    require_ear: bool = True,
 ) -> Dict[str, Any]:
     """Return a segmentation config with explicit single-channel entries.
 
@@ -28,6 +32,11 @@ def build_segment_config(
         eeg_channel: EEG channel name or ``None`` to disable EEG refinement.
         eog_channel: EOG channel name or ``None`` to disable EOG refinement.
         base_config: Optional baseline config to merge under each modality.
+        include_ear: Whether to include the EAR modality key in the config.
+        include_eeg: Whether to include the EEG modality key in the config.
+        include_eog: Whether to include the EOG modality key in the config.
+        require_ear: Enforce that ``ear_channel`` is provided when
+            ``include_ear`` is ``True``.
 
     Raises:
         ValueError: If a requested channel is missing from ``raw``.
@@ -45,10 +54,21 @@ def build_segment_config(
         section["channel"] = channel
         return section
 
-    if ear_channel is None:
-        raise ValueError("EAR channel is required for segmentation tests.")
+    if include_ear:
+        if ear_channel is None and require_ear:
+            raise ValueError("EAR channel is required for segmentation tests.")
+        if ear_channel is not None:
+            config["ear"] = _section("ear", ear_channel)
+    else:
+        config.pop("ear", None)
 
-    config["ear"] = _section("ear", ear_channel)
-    config["eeg"] = _section("eeg", eeg_channel)
-    config["eog"] = _section("eog", eog_channel)
+    if include_eeg:
+        config["eeg"] = _section("eeg", eeg_channel)
+    else:
+        config.pop("eeg", None)
+
+    if include_eog:
+        config["eog"] = _section("eog", eog_channel)
+    else:
+        config.pop("eog", None)
     return config

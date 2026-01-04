@@ -37,13 +37,13 @@ class TestBlinkCount(unittest.TestCase):
     def setUp(self) -> None:
         """Load raw data and slice into epochs for blink counting."""
         logger.info("Setting up epochs for blink count tests...")
-        raw_path = (
+        self.raw_path = (
             PROJECT_ROOT
             / "test"
             / "test_files"
             / "ear_eog_raw.fif"
         )
-        raw = mne.io.read_raw_fif(raw_path, preload=True, verbose=False)
+        raw = mne.io.read_raw_fif(self.raw_path, preload=True, verbose=False)
         segmentation_config = build_segment_config(raw)
         self.epochs = slice_raw_into_mne_epochs_refine_annot(
             raw,
@@ -76,6 +76,30 @@ class TestBlinkCount(unittest.TestCase):
             self.assertIn(col, self.epochs.metadata.columns)
 
         logger.info("Epoch setup complete.")
+
+    def _make_epochs(
+        self,
+        *,
+        include_ear: bool = True,
+        include_eeg: bool = True,
+        include_eog: bool = True,
+        require_ear: bool | None = None,
+    ) -> mne.Epochs:
+        raw = mne.io.read_raw_fif(self.raw_path, preload=True, verbose=False)
+        segmentation_config = build_segment_config(
+            raw,
+            include_ear=include_ear,
+            include_eeg=include_eeg,
+            include_eog=include_eog,
+            require_ear=True if require_ear is None else require_ear,
+        )
+        return slice_raw_into_mne_epochs_refine_annot(
+            raw,
+            epoch_len=30.0,
+            blink_label=None,
+            progress_bar=False,
+            segmentation_type=segmentation_config,
+        )
 
     def test_counts(self) -> None:
         """Verify blink counts against CSV, ignoring rows 31 and 55."""
@@ -150,6 +174,33 @@ class TestBlinkCount(unittest.TestCase):
         assert_df_has_columns(self, df, ["ep", "blink_count_eeg", "blink_count_eog"])
         self.assertListEqual(df["blink_count_eeg"].tolist(), [1.0, 2.0])
         self.assertListEqual(df["blink_count_eog"].tolist(), [2.0, 1.0])
+
+    def test_ear_only_configuration(self) -> None:
+        """EAR-only segmentation still matches expected counts."""
+        epochs = self._make_epochs(include_eeg=False, include_eog=False)
+        df = blink_count(epochs, picks="EAR-avg_ear")
+        assert_df_has_columns(self, df, ["ep", "blink_count_ear"])
+        self.assertEqual(len(df), len(epochs))
+        expected = self.expected_counts.drop(self.allowed_exception_rows, errors="ignore")
+        computed = df["blink_count_ear"].drop(self.allowed_exception_rows, errors="ignore")
+        pd.testing.assert_series_equal(computed, expected, check_names=False)
+
+    def test_eeg_only_missing_ear_key(self) -> None:
+        """EEG-only segmentation omits EAR modality without errors."""
+        epochs = self._make_epochs(include_ear=False, include_eeg=True, include_eog=False, require_ear=False)
+        df = blink_count(epochs, picks="EEG-E8")
+        assert_df_has_columns(self, df, ["ep", "blink_count_eeg"])
+        self.assertEqual(len(df), len(epochs))
+        expected = self.expected_counts.drop(self.allowed_exception_rows, errors="ignore")
+        computed = df["blink_count_eeg"].drop(self.allowed_exception_rows, errors="ignore")
+        pd.testing.assert_series_equal(computed, expected, check_names=False)
+
+    def test_partial_segment_config_missing_eog(self) -> None:
+        """SEGMENT_CONFIG missing EOG key does not block blink counting."""
+        epochs = self._make_epochs(include_ear=True, include_eeg=True, include_eog=False)
+        df = blink_count(epochs, picks=["EEG-E8"])
+        assert_df_has_columns(self, df, ["ep", "blink_count_eeg"])
+        self.assertEqual(len(df), len(epochs))
 
 
 if __name__ == "__main__":

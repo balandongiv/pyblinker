@@ -85,10 +85,19 @@ graph TD
 
 *   **`tutorial/05c_minimal_blink_feature_tutorial.py`**:
     A lightweight script showing how to extract a single category of features (e.g., just kinematics). It is useful for integration into pipelines where speed is critical and the full feature set is not required.
-*   **`tutorial/05b_eeg_feature_extraction_tutorial.py`**:
-    Focuses on EEG/EOG signals, demonstrating features like `blink_signal_energy` and `teager_kaiser_energy` which are specific to voltage time-series analysis.
-*   **`tutorial/05a_ear_energy_feature_tutorial.py`**:
-    A stage 5 (feature extraction) walkthrough that refines EAR annotations, slices epochs, and calculates energy features on the EAR channel to show how "energy" concepts translate to the unitless aspect ratio signal.
+*   **Energy family**:
+    *   `tutorial/05a_ear_energy_feature_tutorial.py` (EAR focus)
+    *   `tutorial/05b_eeg_energy_feature_tutorial.py` (EEG-only walkthrough)
+    *   `tutorial/06a_ear_energy_feature_tutorial.py` (EAR with partial SEGMENT_CONFIG examples)
+    *   `tutorial/06b_eeg_energy_feature_tutorial.py` (EEG with optional EOG and disabled EAR keys)
+*   **Blink events**:
+    *   `tutorial/06_blink_events_feature_tutorial.py` (EAR-only, EEG-only, and combined examples without placeholder config keys)
+*   **Morphology features**:
+    *   `tutorial/06a_ear_morphology_feature_tutorial.py` (EAR focus with optional EEG)
+    *   `tutorial/06b_eeg_morphology_feature_tutorial.py` (EEG/EOG with EAR omitted or disabled)
+*   **Open-eye baseline**:
+    *   `tutorial/06a_ear_open_eye_feature_tutorial.py` (EAR-only baseline extraction)
+    *   `tutorial/06b_eeg_open_eye_feature_tutorial.py` (EEG/EOG baselines with partial configs)
 
 ## Unit Tests
 
@@ -108,3 +117,8 @@ graph TD
     These validate the Wavelet decomposition (D1-D4 bands) across EAR, EEG, EOG, and combined modalities, ensuring the correct wavelet family (`db4`) is used and that the energy summation is correct. The EEG-only suite also checks that channel-level energies are aggregated per modality rather than averaging signals across channels.
 *   **`test/blink_features/open_eye/test_open_eye_features.py`**:
     Tests features derived from the "non-blink" periods, such as PERCLOS (percentage of time eyes are closed) and baseline drift.
+*   **Optional modality coverage**:
+    *   `test/blink_features/energy/test_energy_features.py` now exercises EAR-only, EEG-only, and EEG+EOG configurations while preserving per-channel assertions.
+    *   `test/blink_features/blink_events/test_blink_count.py` and `test/blink_features/blink_events/test_aggregate_event_features.py` validate that missing SEGMENT_CONFIG keys still yield correct counts and rates for the configured modalities.
+    *   `test/blink_features/morphology/test_epoch_morphology_features.py` and `test/blink_features/morphology/test_epoch_morphology_features_aggregation.py` assert morphology behavior when modalities are omitted or explicitly disabled.
+    *   `test/blink_features/open_eye/test_open_eye_features.py` confirms baseline metrics run with EAR-only or EEG-only inputs.
