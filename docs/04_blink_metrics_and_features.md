@@ -248,6 +248,22 @@ The core helpers are structured to compute metrics one blink at a time so per-bl
 *   `test/blink_features/morphology/test_epoch_morphology_features.py`
 *   `test/blink_features/morphology/test_epoch_morphology_features_aggregation.py`
 
+## Morphology naming compatibility (legacy + qualified columns)
+
+*Feature/change*: Morphology epoch extraction now emits both legacy blink property names (e.g., `duration_zero`, `closing_time_zero`) and fully-qualified `<modality>__<style>__morphology__<metric>_<stat>__<channel>` columns, with duration metrics sourced from the shared `compute_blink_durations` implementation to keep behavior consistent across pipelines.
+
+*Related Code*:
+*   `pyblinker/blink_features/morphology/epoch_features.py` (legacy metric aggregation and qualified column emission)
+*   `pyblinker/blink_features/morphology/core_metrics.py` (duration computation source of truth)
+*   `pyblinker/blink_features/morphology/__init__.py` (explicit public exports)
+
+*Tutorials*:
+*   `tutorial/verify_blink_properties_consistency.py`
+
+*Unit Tests*:
+*   `test/blink_features/morphology/test_epoch_morphology_features_aggregation.py`
+*   `test/blink_features/morphology/test_morphology/_eeg_only_config.py`
+
 ## Unit Tests
 
 *   **`test/run_all_features_test.py`**:
