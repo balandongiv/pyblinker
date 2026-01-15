@@ -185,6 +185,23 @@ Automatic modality inference per channel prevents EEG defaults when processing E
 *   `test/blink_features/kinematics/test_kinematics_eeg_only_config.py`: Ensures kinematic metrics run without morphology outputs for EEG-only configs.
 *   `test/blink_features/morphology/test_epoch_morphology_features_aggregation.py`: Validates morphology-only aggregation paths after the split.
 
+## Morphology feature naming compatibility
+
+*Feature/change*: The morphology epoch extractor now emits both legacy flat metric names (e.g., `duration_zero`, `closing_time_tent`) and fully qualified morphology feature columns (e.g., `eeg__base__morphology__duration_mean__EEG-E8`), ensuring classic tutorials and the newer test suite agree on output names. Duration metrics are derived via the shared `compute_blink_durations` implementation to keep math consistent with BlinkProperties.
+
+*Related Code*:
+*   `pyblinker/blink_features/morphology/epoch_features.py` (legacy vs. fully qualified naming, duration sourcing, aggregation)
+*   `pyblinker/blink_features/morphology/core_metrics.py` (duration and timing calculations)
+*   `pyblinker/blink_features/morphology/__init__.py` (explicit exports)
+
+*Tutorials*:
+*   `tutorial/01a_basic_usage.py`
+*   `tutorial/verify_blink_properties_consistency.py`
+
+*Unit Tests*:
+*   `test/blink_features/morphology/test_epoch_morphology_features_aggregation.py`
+*   `test/blink_features/waveform_features/test_segment_blink_properties.py`
+
 ## BlinkProperties refactor into kinematics/morphology cores
 
 *Feature/change*: The BlinkProperties feature calculations (durations, shut times, amplitude-velocity ratios, and inter-blink timing) are now implemented in the kinematics and morphology core metric modules. BlinkProperties itself delegates to these core functions so the legacy API and output schema remain stable while the authoritative math lives in the dedicated feature domains.
