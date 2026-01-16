@@ -73,7 +73,14 @@ class TestCompareFitBlink(unittest.TestCase):
             raise KeyError(f"blinkFits not found in {cls.mat_path}")
         
         # Convert the array/list into pandas DataFrame
-        cls.df_blink_fits = pd.DataFrame(cls.blink_fits)
+        try:
+            cls.df_blink_fits = pd.DataFrame(cls.blink_fits)
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Failed to convert blinkFits to DataFrame. "
+                f"Expected list of dicts or array-like structure, "
+                f"got {type(cls.blink_fits)}: {e}"
+            )
     
     def test_blink_fits_loaded(self):
         """Test that blinkFits was loaded and is non-empty."""
