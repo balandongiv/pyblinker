@@ -71,7 +71,16 @@ from scipy.io import loadmat
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-
+def assert_close(name, ref, got, rtol=1e-6, atol=1e-8):
+	"""Simple MATLAB-vs-Python assertion with tolerance (scalars or arrays)."""
+	np.testing.assert_allclose(
+		np.asarray(ref),
+		np.asarray(got),
+		rtol=rtol,
+		atol=atol,
+		equal_nan=True,
+		err_msg=f"{name} mismatch: ref={ref} got={got}",
+		)
 # -----------------------------------------------------------------------------
 # Test class
 # -----------------------------------------------------------------------------
@@ -92,14 +101,24 @@ class TestFitBlinks(unittest.TestCase):
 			simplify_cells=True,
 			struct_as_record=False,
 			)
-		numberGoodBlinks_ref = mat_data['signalData']["numberGoodBlinks"]
-		blinkAmpRatio_ref = mat_data['signalData']["blinkAmpRatio"]
-		cutoff_ref = mat_data['signalData']["cutoff"]
-		bestMedian_ref = mat_data['signalData']["bestMedian"]
-		bestRobustStd_ref = mat_data['signalData']["bestRobustStd"]
-		goodRatio_ref = mat_data['signalData']["goodRatio"]
-		blinkPositions_ref = mat_data['signalData']["blinkPositions"]
-		# ---------------------------------------------------------------------
+		# numberGoodBlinks_ref = mat_data['signalData']["numberGoodBlinks"]
+		# blinkAmpRatio_ref = mat_data['signalData']["blinkAmpRatio"]
+		# cutoff_ref = mat_data['signalData']["cutoff"]
+		# bestMedian_ref = mat_data['signalData']["bestMedian"]
+		# bestRobustStd_ref = mat_data['signalData']["bestRobustStd"]
+		# goodRatio_ref = mat_data['signalData']["goodRatio"]
+		# blinkPositions_ref = mat_data['signalData']["blinkPositions"]
+		sig = mat_data["signalData"]
+
+		cls.numberGoodBlinks_ref = sig["numberGoodBlinks"]
+		cls.blinkAmpRatio_ref = sig["blinkAmpRatio"]
+		cls.cutoff_ref = sig["cutoff"]
+		cls.bestMedian_ref = sig["bestMedian"]
+		cls.bestRobustStd_ref = sig["bestRobustStd"]
+		cls.goodRatio_ref = sig["goodRatio"]
+		cls.blinkPositions_ref = sig["blinkPositions"]
+
+	# ---------------------------------------------------------------------
 		# Load raw FIF data
 		# ---------------------------------------------------------------------
 		raw = mne.io.read_raw_fif(
@@ -157,12 +176,12 @@ class TestFitBlinks(unittest.TestCase):
 			params_default["z_thresholds"],
 			signal=blink_comp,
 			)
-		number_good_blinks_py = blink_stats["number_good_blinks"]
-		blink_amp_ratio_py = blink_stats["blink_amp_ratio"]
-		cutoff_py = blink_stats["cutoff"]
-		best_median_py = blink_stats["best_median"]
-		best_robust_std_py = blink_stats["best_robust_std"]
-		good_ratio_py = blink_stats["good_ratio"]
+		cls.number_good_blinks_py = blink_stats["number_good_blinks"]
+		cls.blink_amp_ratio_py = blink_stats["blink_amp_ratio"]
+		cls.cutoff_py = blink_stats["cutoff"]
+		cls.best_median_py = blink_stats["best_median"]
+		cls.best_robust_std_py = blink_stats["best_robust_std"]
+		cls.good_ratio_py = blink_stats["good_ratio"]
 		H=1
 
 		# blink_stats["ch"] = channel
@@ -176,6 +195,19 @@ class TestFitBlinks(unittest.TestCase):
 			params_default["z_thresholds"],
 			)
 
+	def test_match_matlab_outputs(self):
+		"""
+		Compare the key MATLAB outputs with Python outputs using tolerance.
+		"""
+		assert_close("numberGoodBlinks", self.numberGoodBlinks_ref, self.number_good_blinks_py)
+		assert_close("blinkAmpRatio", self.blinkAmpRatio_ref, self.blink_amp_ratio_py)
+		assert_close("cutoff", self.cutoff_ref, self.cutoff_py)
+		assert_close("bestMedian", self.bestMedian_ref, self.best_median_py)
+		assert_close("bestRobustStd", self.bestRobustStd_ref, self.best_robust_std_py)
+		assert_close("goodRatio", self.goodRatio_ref, self.good_ratio_py)
+
+		# If you later compute python blink positions, you can add:
+		# assert_close("blinkPositions", self.blinkPositions_ref, self.blink_positions_py, rtol=0, atol=0)
 
 	def test_reach_setupclass(self):
 		# This ensures unittest collects/runs the class (and thus setUpClass)
