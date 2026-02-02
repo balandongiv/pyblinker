@@ -64,6 +64,7 @@ from pyblinker.utils.statistics_utils import get_blink_statistic
 from pyblinker.utils.statistics_utils import get_good_blink_mask
 # pyblinker/blinker/default_setting.py
 from pyblinker.blinker.default_setting import DEFAULT_PARAMS
+from scipy.io import loadmat
 # -----------------------------------------------------------------------------
 # Logger configuration
 # -----------------------------------------------------------------------------
@@ -83,7 +84,21 @@ class TestFitBlinks(unittest.TestCase):
 		"""
 		base_path = Path(__file__).resolve().parents[1] / "migration_files"
 		fif_path = Path("test/test_files/ear_eog_raw.fif")
-
+		mat_path = base_path / "step5_data_output_extract_blinks_rpb.mat"
+		assert mat_path.exists(), f"Missing MATLAB file: {mat_path}"
+		mat_data = loadmat(
+			mat_path,
+			squeeze_me=True,
+			simplify_cells=True,
+			struct_as_record=False,
+			)
+		numberGoodBlinks_ref = mat_data['signalData']["numberGoodBlinks"]
+		blinkAmpRatio_ref = mat_data['signalData']["blinkAmpRatio"]
+		cutoff_ref = mat_data['signalData']["cutoff"]
+		bestMedian_ref = mat_data['signalData']["bestMedian"]
+		bestRobustStd_ref = mat_data['signalData']["bestRobustStd"]
+		goodRatio_ref = mat_data['signalData']["goodRatio"]
+		blinkPositions_ref = mat_data['signalData']["blinkPositions"]
 		# ---------------------------------------------------------------------
 		# Load raw FIF data
 		# ---------------------------------------------------------------------
@@ -132,16 +147,22 @@ class TestFitBlinks(unittest.TestCase):
 			)
 		fitblinks.dprocess()
 
-		df_output = fitblinks.frame_blinks
+		# df_output = fitblinks.frame_blinks
 		df = fitblinks.frame_blinks
 
 		# STEP 3: Extract blink statistics extractBlinkProperties.m
-		# Calculate an amplitude criterion (frames in blink to those out) and Now calculate the cutoff ratios -- use default for the values
+		# Calculate an amplitude criterion (frames in blink to those out) and Now calculate the cutoff ratios -- use default for the values. now, it seem we have issue with this get_blink_statistic
 		blink_stats = get_blink_statistic(
 			df,
 			params_default["z_thresholds"],
 			signal=blink_comp,
 			)
+		number_good_blinks_py = blink_stats["number_good_blinks"]
+		blink_amp_ratio_py = blink_stats["blink_amp_ratio"]
+		cutoff_py = blink_stats["cutoff"]
+		best_median_py = blink_stats["best_median"]
+		best_robust_std_py = blink_stats["best_robust_std"]
+		good_ratio_py = blink_stats["good_ratio"]
 		H=1
 
 		# blink_stats["ch"] = channel
