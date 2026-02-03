@@ -43,8 +43,9 @@ def _load_matlab_blink_positions(path: str | Path) -> np.ndarray:
 class TestCompareGetBlinkPosition(unittest.TestCase):
     def test_compare_blink_positions_with_matlab(self):
         # Paths
-        fif_path = Path("test/test_files/ear_eog_raw.fif")
-        mat_expected = Path("test/migration_files/step1bi_data_output_getBlinkPositions_rpb.mat")
+        base_path = Path(__file__).resolve().parents[1]
+        fif_path = base_path / "test_files" / "ear_eog_raw.fif"
+        mat_expected = base_path / "migration_files" / "step1bi_data_output_getBlinkPositions_rpb.mat"
         self.assertTrue(fif_path.exists(), f"Missing input FIF: {fif_path}")
         self.assertTrue(mat_expected.exists(), f"Missing MATLAB expected file: {mat_expected}")
 

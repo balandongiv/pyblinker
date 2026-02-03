@@ -7,6 +7,7 @@
 
 ### Changed
 - Centralize close-pair filtering in blink position detection so pipeline and comparisons share MATLAB-aligned logic.
+- Use repository-relative paths in migration comparison tests for portability.
 
 ## [0.1.4] - 2026-01-20
 
