@@ -186,12 +186,12 @@ class TestFitBlinks(unittest.TestCase):
 		# There is a step for << Reduce the number of candidate signals based on the blink amp ratios >>, but we move it to channel selection step.
 		#
 		# # STEP 4: Get good blink mask extractBlinkProperties.m
-		_, df = get_good_blink_mask(
-			df,
-			blink_stats["best_median"],
-			blink_stats["best_robust_std"],
-			params_default["z_thresholds"],
-			)
+		# good_blink_mask, df = get_good_blink_mask(
+		# 	df,
+		# 	blink_stats["best_median"],
+		# 	blink_stats["best_robust_std"],
+		# 	params_default["z_thresholds"],
+		# 	)
 
 	def test_match_matlab_outputs(self):
 		"""
@@ -203,9 +203,7 @@ class TestFitBlinks(unittest.TestCase):
 		assert_close("bestMedian", self.bestMedian_ref, self.best_median_py)
 		assert_close("bestRobustStd", self.bestRobustStd_ref, self.best_robust_std_py)
 		assert_close("goodRatio", self.goodRatio_ref, self.good_ratio_py)
-
-		# If you later compute python blink positions, you can add:
-		# assert_close("blinkPositions", self.blinkPositions_ref, self.blink_positions_py, rtol=0, atol=0)
+		assert_close("blinkPositions", self.blinkPositions_ref, self.blink_positions_py)
 
 	def test_reach_setupclass(self):
 		# This ensures unittest collects/runs the class (and thus setUpClass)
