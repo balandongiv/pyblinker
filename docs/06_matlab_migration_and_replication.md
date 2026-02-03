@@ -126,6 +126,16 @@ The blink property extraction now mirrors MATLAB's handling of inter-blink timin
 *   **Tutorials**: None.
 *   **Unit Tests**: `test/blinker_pyblinker_comparison/compare_BlinkProperties.py` (compares Python and MATLAB blink-property outputs).
 
+### Blink Statistic Parity for MATLAB ExtractBlinks
+Blink statistic computation now mirrors MATLAB's `extractBlinks.m` filtering and cutoff logic by removing NaN blink-fit rows before building blink masks, honoring right-zero ordering, and preserving MATLAB's early-exit behavior when fewer than two high-quality fits are available. This aligns the reported blink amplitude ratio, cutoff, median, robust standard deviation, and good-blink ratio with MATLAB outputs.
+
+**Related Code**
+*   `pyblinker/utils/statistics_utils.py`
+
+**Verification (Tutorials & Tests)**
+*   **Tutorials**: None.
+*   **Unit Tests**: `test/blinker_migration/test_step1bii_v_blinkStatProperties.py`, `test/blinker_pyblinker_comparison/extract_blinks_eeg.py` (compares blink statistic outputs against MATLAB exports).
+
 ### Unit Tests
 *   **`test/blinker_migration/test_step1a.py`**: Validates candidate signal generation. It compares the raw signal vector used for detection against the MATLAB export.
 *   **`test/blinker_migration/test_step1bii_fitblink.py`**: Checks the shape fitting algorithm. It verifies that `fit_blink.py` produces the same $R^2$ values and slope parameters as the MATLAB `fitBlink` function.

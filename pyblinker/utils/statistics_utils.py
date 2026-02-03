@@ -51,35 +51,55 @@ def get_blink_statistic(
 
     """
     correlation_threshold_bottom, correlation_threshold_top = z_thresholds[0]
-    dfx = df.copy()
-    dfx[["left_zero", "right_zero"]] = dfx[["left_zero", "right_zero"]] - 1
-
-    indices = np.arange(len(signal))
-    blink_mask = np.any(
-        [
-            (indices >= lz) & (indices <= rz)
-            for lz, rz in zip(dfx["left_zero"], dfx["right_zero"])
-        ],
-        axis=0,
-    ).astype(bool)
-
-    inside_blink = (signal > 0) & blink_mask
-    outside_blink = (signal > 0) & ~blink_mask
-    blink_amp_ratio = np.mean(signal[inside_blink]) / np.mean(signal[outside_blink])
-
-
-    df_data = df[["leftR2", "rightR2", "max_value"]]
-
-    good_mask_top = (df_data["leftR2"] >= correlation_threshold_top) & (
-        df_data["rightR2"] >= correlation_threshold_top
+    df_data = df[
+        ["left_zero", "right_zero", "max_value", "leftR2", "rightR2"]
+    ].copy()
+    df_data = df_data.dropna(
+        subset=["left_zero", "right_zero", "max_value", "leftR2", "rightR2"]
     )
-    good_mask_bottom = (df_data["leftR2"] >= correlation_threshold_bottom) & (
-        df_data["rightR2"] >= correlation_threshold_bottom
+    index_offset = 1 if "number" in df.columns else 0
+    left_zero = df_data["left_zero"].to_numpy() - index_offset
+    right_zero = df_data["right_zero"].to_numpy() - index_offset
+    max_values = df_data["max_value"].to_numpy()
+    left_r2 = df_data["leftR2"].to_numpy()
+    right_r2 = df_data["rightR2"].to_numpy()
+
+    blink_amp_ratio = np.nan
+    if signal is not None and len(signal) > 0:
+        blink_mask = np.zeros(len(signal), dtype=bool)
+        for lz, rz in zip(left_zero, right_zero):
+            if rz > lz:
+                lz_int = max(int(lz), 0)
+                rz_int = min(int(rz), len(signal) - 1)
+                if rz_int >= lz_int:
+                    blink_mask[lz_int : rz_int + 1] = True
+        inside_blink = (signal > 0) & blink_mask
+        outside_blink = (signal > 0) & ~blink_mask
+        blink_amp_ratio = np.mean(signal[inside_blink]) / np.mean(
+            signal[outside_blink]
+        )
+
+    good_mask_top = (left_r2 >= correlation_threshold_top) & (
+        right_r2 >= correlation_threshold_top
+    )
+    good_mask_bottom = (left_r2 >= correlation_threshold_bottom) & (
+        right_r2 >= correlation_threshold_bottom
     )
 
-    best_values = df_data.loc[good_mask_top, "max_value"].to_numpy()
-    worst_values = df_data.loc[~good_mask_bottom, "max_value"].to_numpy()
-    good_values = df_data.loc[good_mask_bottom, "max_value"].to_numpy()
+    if np.sum(good_mask_top) < 2:
+        return {
+            "number_blinks": len(df),
+            "number_good_blinks": np.nan,
+            "blink_amp_ratio": blink_amp_ratio,
+            "cutoff": np.nan,
+            "best_median": np.nan,
+            "best_robust_std": np.nan,
+            "good_ratio": np.nan,
+        }
+
+    best_values = max_values[good_mask_top]
+    worst_values = max_values[~good_mask_bottom]
+    good_values = max_values[good_mask_bottom]
 
     best_median = np.nanmedian(best_values)
     best_robust_std = SCALING_FACTOR * mad(best_values)
@@ -90,9 +110,7 @@ def get_blink_statistic(
         best_robust_std + worst_robust_std
     )
 
-    all_x = calculate_within_range(
-        df_data["max_value"].to_numpy(), best_median, best_robust_std
-    )
+    all_x = calculate_within_range(max_values, best_median, best_robust_std)
     good_ratio = (
         np.nan
         if all_x <= 0
@@ -102,7 +120,7 @@ def get_blink_statistic(
     number_good_blinks = int(np.sum(good_mask_bottom))
 
     return {
-        "number_blinks": len(df_data),
+        "number_blinks": len(df),
         "number_good_blinks": number_good_blinks,
         "blink_amp_ratio": blink_amp_ratio,
         "cutoff": cutoff,

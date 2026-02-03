@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.6] - 2026-01-22
+
+### Fixed
+- Align blink statistic computation with MATLAB extractBlinks by filtering invalid fit rows, enforcing right-zero ordering in blink masks, and matching the cutoff/good-ratio early-exit behavior.
+
 ## [0.1.5] - 2026-01-21
 
 ### Fixed

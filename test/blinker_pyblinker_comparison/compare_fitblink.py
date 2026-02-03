@@ -9,7 +9,6 @@ from scipy.io import loadmat
 
 from pyblinker.blinker import default_setting
 from pyblinker.blinker.fit_blink import FitBlinks
-from pyblinker.blinker.get_blink_positions import get_blink_position
 
 
 # -----------------------------------------------------------------------------
@@ -52,22 +51,26 @@ class TestFitBlinks(unittest.TestCase):
 
 		blink_comp = raw.get_data()[0].astype(np.float64)
 
-		# ---------------------------------------------------------------------
-		# Detect blink positions
-		# ---------------------------------------------------------------------
-		params = dict(
-			min_event_len=0.05,
-			std_threshold=1.5,
-			sfreq=100,
-			)
-
 		params_default = default_setting.DEFAULT_PARAMS.copy()
 
-		df_positions = get_blink_position(
-			params,
-			blink_component=blink_comp,
-			ch="No_channel",
-			progress_bar=False,
+		# ---------------------------------------------------------------------
+		# Load MATLAB blink positions (used to produce the reference fits)
+		# ---------------------------------------------------------------------
+		mat_input_path = base_path / "step1bii_data_input_process_FitBlinks_rpb.mat"
+		mat_input = loadmat(
+			mat_input_path,
+			squeeze_me=True,
+			simplify_cells=True,
+			struct_as_record=False,
+			)
+		blink_positions = np.array(mat_input["blinkPositions"]).squeeze()
+		if blink_positions.ndim == 1:
+			blink_positions = blink_positions.reshape(2, 1)
+		if blink_positions.shape[0] != 2 and blink_positions.shape[1] == 2:
+			blink_positions = blink_positions.T
+		blink_positions = blink_positions.astype(np.int64) - 1
+		df_positions = pd.DataFrame(
+			{"start_blink": blink_positions[0], "end_blink": blink_positions[1]}
 			)
 
 		# ---------------------------------------------------------------------

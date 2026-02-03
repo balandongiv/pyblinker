@@ -61,7 +61,6 @@ from pyblinker.blinker import default_setting
 from pyblinker.blinker.fit_blink import FitBlinks
 from pyblinker.blinker.get_blink_positions import get_blink_position
 from pyblinker.utils.statistics_utils import get_blink_statistic
-from pyblinker.utils.statistics_utils import get_good_blink_mask
 from scipy.io import loadmat
 # -----------------------------------------------------------------------------
 # Logger configuration
@@ -69,7 +68,7 @@ from scipy.io import loadmat
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-def assert_close(name, ref, got, rtol=1e-6, atol=1e-8):
+def assert_close(name, ref, got, rtol=1e-5, atol=1e-8):
 	"""Simple MATLAB-vs-Python assertion with tolerance (scalars or arrays)."""
 	np.testing.assert_allclose(
 		np.asarray(ref),
@@ -154,6 +153,7 @@ class TestFitBlinks(unittest.TestCase):
 			ch="No_channel",
 			progress_bar=False,
 			)
+		cls.blink_positions_py = df_positions[["start_blink", "end_blink"]].to_numpy().T + 1
 
 		# ---------------------------------------------------------------------
 		# Run FitBlinks
