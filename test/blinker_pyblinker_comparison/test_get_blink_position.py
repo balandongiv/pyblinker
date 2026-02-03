@@ -92,8 +92,8 @@ class TestFitBlinks(unittest.TestCase):
         Load test data, run FitBlinks, and load MATLAB reference output.
         """
         base_path = Path(__file__).resolve().parents[1] / "migration_files"
-        # fif_path = Path("test/test_files/ear_eog_raw.fif")
-        fif_path=r'C:\Users\balan\IdeaProjects\pyblinker\test\test_files\ear_eog_raw.fif'
+        fif_path = Path("test/test_files/ear_eog_raw.fif")
+        # fif_path=r'C:\Users\balan\IdeaProjects\pyblinker\test\test_files\ear_eog_raw.fif'
         mat_path = base_path / "step5_data_output_extract_blinks_rpb.mat"
         assert mat_path.exists(), f"Missing MATLAB file: {mat_path}"
         mat_data = loadmat(
