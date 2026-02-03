@@ -50,37 +50,16 @@ The
 
 """
 
-import logging
 import unittest
 from pathlib import Path
 
 import mne
 import numpy as np
+import pandas as pd
 
 from pyblinker.blinker import default_setting
-from pyblinker.blinker.fit_blink import FitBlinks
 from pyblinker.blinker.get_blink_positions import get_blink_position
-from pyblinker.utils.statistics_utils import get_blink_statistic
-from pyblinker.utils.statistics_utils import get_good_blink_mask
-# pyblinker/blinker/default_setting.py
-from pyblinker.blinker.default_setting import DEFAULT_PARAMS
 from scipy.io import loadmat
-# -----------------------------------------------------------------------------
-# Logger configuration
-# -----------------------------------------------------------------------------
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
-
-def assert_close(name, ref, got, rtol=1e-6, atol=1e-8):
-    """Simple MATLAB-vs-Python assertion with tolerance (scalars or arrays)."""
-    np.testing.assert_allclose(
-        np.asarray(ref),
-        np.asarray(got),
-        rtol=rtol,
-        atol=atol,
-        equal_nan=True,
-        err_msg=f"{name} mismatch: ref={ref} got={got}",
-    )
 # -----------------------------------------------------------------------------
 # Test class
 # -----------------------------------------------------------------------------
@@ -112,7 +91,12 @@ class TestFitBlinks(unittest.TestCase):
         sig = mat_data["signalData"]
 
 
-        cls.blinkPositions_ref = sig["blinkPositions"] # The first row is index 0 in MATLAB, and represent start_blink, and second row represent end_blink
+        blink_positions_ref = np.array(sig["blinkPositions"]).squeeze()
+        if blink_positions_ref.ndim == 1:
+            blink_positions_ref = blink_positions_ref.reshape(2, 1)
+        if blink_positions_ref.shape[0] != 2 and blink_positions_ref.shape[1] == 2:
+            blink_positions_ref = blink_positions_ref.T
+        cls.blink_positions_ref = blink_positions_ref.astype(np.int64) - 1
 
         # ---------------------------------------------------------------------
         # Load raw FIF data
@@ -147,8 +131,7 @@ class TestFitBlinks(unittest.TestCase):
             ch="No_channel",
             progress_bar=False,
         )
-        cls.blink_positions_py = df_positions.to_numpy()
-        h=1
+        cls.blink_positions_py = df_positions
 
         # ---------------------------------------------------------------------
         # Run FitBlinks
@@ -161,7 +144,20 @@ class TestFitBlinks(unittest.TestCase):
         """
 
         # If you later compute python blink positions, you can add:
-        assert_close("blinkPositions", self.blinkPositions_ref, self.blink_positions_py, rtol=0, atol=0)
+        df_mat = pd.DataFrame(
+            {
+                "start_blink": self.blink_positions_ref[0, :].astype(np.int64),
+                "end_blink": self.blink_positions_ref[1, :].astype(np.int64),
+            }
+        )
+        df_py = self.blink_positions_py.astype(
+            {"start_blink": np.int64, "end_blink": np.int64}, errors="ignore"
+        )
+        pd.testing.assert_frame_equal(
+            df_py.reset_index(drop=True),
+            df_mat.reset_index(drop=True),
+            check_dtype=False,
+        )
 
     def test_reach_setupclass(self):
         # This ensures unittest collects/runs the class (and thus setUpClass)

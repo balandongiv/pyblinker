@@ -18,7 +18,14 @@ The primary automated method in `pyblinker` follows the legacy BLINKER approach:
 1.  Compute the **Robust Standard Deviation** (using Median Absolute Deviation - MAD) of the candidate signal.
 2.  Set a threshold (typically `mean + N * robust_std`).
 3.  Identify regions where the signal exceeds this threshold for a minimum duration.
-4.  Merge events that are too close together.
+4.  Merge events that are too close together, treating candidates at or under the minimum separation threshold as overlapping (matching the MATLAB reference behavior).
+
+#### Update: Minimum Separation Alignment (Bug Fix)
+*   **The Feature/Change**: Blink candidates are now removed when their inter-blink separation is less than or equal to the minimum separation threshold, matching the MATLAB reference logic and correcting blink-count mismatches.
+*   **Related Code**: `pyblinker/blinker/get_blink_positions.py`
+*   **Verification (Tutorials & Tests)**:
+    *   **Tutorials**: `tutorial/blinker/migration/migration_step1a_tutorial_validate_candidate_positions.py`
+    *   **Unit Tests**: `test/blinker_pyblinker_comparison/test_get_blink_position.py`
 
 ### 2. Manual Annotation
 Users can manually annotate blinks using:

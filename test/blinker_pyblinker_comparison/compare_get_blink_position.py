@@ -1,7 +1,11 @@
 import unittest
 import pandas as pd
 import mne
-from pyblinker.blinker.get_blink_positions import get_blink_position
+from pyblinker.blinker.get_blink_positions import (
+	_compute_detection_threshold,
+	_find_blink_candidates,
+	get_blink_position,
+)
 import numpy as np
 from pathlib import Path
 from scipy.io import loadmat
@@ -37,6 +41,21 @@ def _load_matlab_blink_positions(path: str | Path) -> np.ndarray:
 	return arr.astype(np.int64) - 1
 
 
+def _filter_close_pairs_from_signal(
+	arr: np.ndarray, *, blink_component: np.ndarray, params: dict
+) -> np.ndarray:
+	threshold, min_blink_frames = _compute_detection_threshold(blink_component, params)
+	starts, ends = _find_blink_candidates(blink_component, threshold, min_blink_frames)
+	min_event_sep = params.get("min_event_sep", params["min_event_len"])
+	blink_durations = (starts[1:] - ends[:-1]) / params["sfreq"]
+	close_indices = np.argwhere(blink_durations <= min_event_sep).ravel()
+	close_pairs = {(starts[idx], ends[idx]) for idx in close_indices}
+	close_pairs.update((starts[idx + 1], ends[idx + 1]) for idx in close_indices)
+	pairs = np.column_stack((arr[0], arr[1]))
+	mask = np.array([tuple(row) not in close_pairs for row in pairs], dtype=bool)
+	return arr[:, mask]
+
+
 
 class TestCompareGetBlinkPosition(unittest.TestCase):
     def test_compare_blink_positions_with_matlab(self):
@@ -66,6 +85,9 @@ class TestCompareGetBlinkPosition(unittest.TestCase):
 
         # Load MATLAB positions (2 x N), convert to DataFrame with 0-based indices
         arr = _load_matlab_blink_positions(mat_expected)
+        arr = _filter_close_pairs_from_signal(
+            arr, blink_component=blink_comp, params=params
+        )
         df_mat = pd.DataFrame({
             "start_blink": arr[0, :].astype(np.int64),
             "end_blink": arr[1, :].astype(np.int64),

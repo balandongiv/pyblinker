@@ -62,8 +62,6 @@ from pyblinker.blinker.fit_blink import FitBlinks
 from pyblinker.blinker.get_blink_positions import get_blink_position
 from pyblinker.utils.statistics_utils import get_blink_statistic
 from pyblinker.utils.statistics_utils import get_good_blink_mask
-# pyblinker/blinker/default_setting.py
-from pyblinker.blinker.default_setting import DEFAULT_PARAMS
 from scipy.io import loadmat
 # -----------------------------------------------------------------------------
 # Logger configuration
@@ -182,7 +180,6 @@ class TestFitBlinks(unittest.TestCase):
 		cls.best_median_py = blink_stats["best_median"]
 		cls.best_robust_std_py = blink_stats["best_robust_std"]
 		cls.good_ratio_py = blink_stats["good_ratio"]
-		H=1
 
 		# blink_stats["ch"] = channel
 		# There is a step for << Reduce the number of candidate signals based on the blink amp ratios >>, but we move it to channel selection step.

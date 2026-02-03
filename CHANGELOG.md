@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.5] - 2026-01-21
+
+### Fixed
+- Align blink candidate minimum-separation removal with MATLAB logic by treating candidates at or under the separation threshold as overlapping.
+
 ## [0.1.4] - 2026-01-20
 
 ### Changed

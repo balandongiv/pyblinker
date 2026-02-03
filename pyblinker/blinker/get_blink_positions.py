@@ -20,29 +20,47 @@ def _compute_detection_threshold(
 def _find_blink_candidates(
     blink_component: np.ndarray, threshold: float, min_blink_frames: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    above = blink_component > threshold
-    if not np.any(above):
+    above_or_equal = blink_component >= threshold
+    if not np.any(above_or_equal):
         return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
 
-    starts = np.flatnonzero(np.logical_and(~above[:-1], above[1:])) + 1
-    ends = np.flatnonzero(np.logical_and(above[:-1], ~above[1:])) + 1
+    segment_starts = np.flatnonzero(
+        np.logical_and(~above_or_equal[:-1], above_or_equal[1:])
+    ) + 1
+    segment_ends = np.flatnonzero(
+        np.logical_and(above_or_equal[:-1], ~above_or_equal[1:])
+    ) + 1
 
-    if above[0]:
-        starts = np.insert(starts, 0, 0)
+    if above_or_equal[0]:
+        segment_starts = np.insert(segment_starts, 0, 0)
 
-    if starts.size and ends.size and ends[0] < starts[0]:
-        ends = ends[1:]
+    if segment_starts.size and segment_ends.size and segment_ends[0] < segment_starts[0]:
+        segment_ends = segment_ends[1:]
 
-    pair_count = min(starts.size, ends.size)
+    pair_count = min(segment_starts.size, segment_ends.size)
     if pair_count == 0:
         return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
 
-    starts = starts[:pair_count]
-    ends = ends[:pair_count]
+    segment_starts = segment_starts[:pair_count]
+    segment_ends = segment_ends[:pair_count]
 
-    durations = ends - starts
-    keep_mask = durations > min_blink_frames
-    return starts[keep_mask].astype(np.int64), ends[keep_mask].astype(np.int64)
+    starts: list[int] = []
+    ends: list[int] = []
+    for seg_start, seg_end in zip(segment_starts, segment_ends, strict=False):
+        segment = blink_component[seg_start:seg_end]
+        above_strict = np.flatnonzero(segment > threshold)
+        if above_strict.size == 0:
+            continue
+        start_idx = int(seg_start + above_strict[0])
+        duration = seg_end - start_idx
+        if duration > min_blink_frames:
+            starts.append(start_idx)
+            ends.append(int(seg_end))
+
+    if not starts:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+
+    return np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64)
 
 
 def _remove_close_blinks(
@@ -53,7 +71,7 @@ def _remove_close_blinks(
 
     pos_mask = np.ones(ends.size, dtype=bool)
     blink_durations = (starts[1:] - ends[:-1]) / sfreq
-    close_indices = np.argwhere(blink_durations < min_event_sep).ravel()
+    close_indices = np.argwhere(blink_durations <= min_event_sep).ravel()
 
     pos_mask[close_indices] = False
     pos_mask[close_indices + 1] = False
