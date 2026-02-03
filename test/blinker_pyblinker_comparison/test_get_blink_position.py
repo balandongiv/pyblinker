@@ -137,11 +137,7 @@ class TestFitBlinks(unittest.TestCase):
         # ---------------------------------------------------------------------
         # Detect blink positions
         # ---------------------------------------------------------------------
-        params = dict(
-            min_event_len=0.05,
-            std_threshold=1.5,
-            sfreq=100,
-        )
+
 
         params_default = default_setting.DEFAULT_PARAMS.copy()
 
