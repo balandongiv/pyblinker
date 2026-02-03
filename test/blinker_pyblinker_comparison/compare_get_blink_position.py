@@ -69,6 +69,8 @@ class TestCompareGetBlinkPosition(unittest.TestCase):
 
         # Load MATLAB positions (2 x N), convert to DataFrame with 0-based indices
         arr = _load_matlab_blink_positions(mat_expected)
+
+		# The following is cheating as we are filtering the data after loading from MATLAB
         arr = _filter_close_pairs_from_signal(
             arr, blink_component=blink_comp, params=params
         )
