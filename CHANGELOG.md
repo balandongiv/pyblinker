@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5] - 2026-01-21
+
+### Fixed
+- Align blink candidate minimum-separation removal with MATLAB logic by treating candidates at or under the separation threshold as overlapping.
+
+### Changed
+- Centralize close-pair filtering in blink position detection so pipeline and comparisons share MATLAB-aligned logic.
+- Use repository-relative paths in migration comparison tests for portability.
+- Use repository-relative fixture paths in extract_blinks_eeg migration comparison.
+
 ## [0.1.4] - 2026-01-20
 
 ### Changed

@@ -62,8 +62,6 @@ from pyblinker.blinker.fit_blink import FitBlinks
 from pyblinker.blinker.get_blink_positions import get_blink_position
 from pyblinker.utils.statistics_utils import get_blink_statistic
 from pyblinker.utils.statistics_utils import get_good_blink_mask
-# pyblinker/blinker/default_setting.py
-from pyblinker.blinker.default_setting import DEFAULT_PARAMS
 from scipy.io import loadmat
 # -----------------------------------------------------------------------------
 # Logger configuration
@@ -91,8 +89,9 @@ class TestFitBlinks(unittest.TestCase):
 		"""
 		Load test data, run FitBlinks, and load MATLAB reference output.
 		"""
-		base_path = Path(__file__).resolve().parents[1] / "migration_files"
-		fif_path = Path("test/test_files/ear_eog_raw.fif")
+		base_root = Path(__file__).resolve().parents[1]
+		base_path = base_root / "migration_files"
+		fif_path = base_root / "test_files" / "ear_eog_raw.fif"
 		mat_path = base_path / "step5_data_output_extract_blinks_rpb.mat"
 		assert mat_path.exists(), f"Missing MATLAB file: {mat_path}"
 		mat_data = loadmat(
@@ -182,7 +181,6 @@ class TestFitBlinks(unittest.TestCase):
 		cls.best_median_py = blink_stats["best_median"]
 		cls.best_robust_std_py = blink_stats["best_robust_std"]
 		cls.good_ratio_py = blink_stats["good_ratio"]
-		H=1
 
 		# blink_stats["ch"] = channel
 		# There is a step for << Reduce the number of candidate signals based on the blink amp ratios >>, but we move it to channel selection step.
