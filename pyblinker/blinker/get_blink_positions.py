@@ -66,6 +66,36 @@ def _find_blink_candidates(
 def _filter_close_pairs_from_signal(
     arr: np.ndarray, *, blink_component: np.ndarray, params: dict
 ) -> np.ndarray:
+    """Filter blink start/end pairs that violate the minimum separation rule.
+    This helper reproduces the MATLAB ``getBlinkPositions`` post-processing step
+    that removes blink candidates whose inter-blink separation is less than or
+    equal to ``min_event_sep``. The filtering is *signal-aware*: it recomputes
+    candidate starts/ends from the provided signal (using the same thresholding
+    logic as the main detection pipeline) and then drops any pairs from ``arr``
+    that belong to a close-pair cluster.
+
+    Origin and significance:
+    - Origin: Ported from the legacy BLINKER MATLAB code path that performs the
+      close-pair removal after initial candidate detection.
+    - Significance: Ensures blink counts and timings align with MATLAB outputs
+      during migration comparisons, and keeps the pipeline deterministic by
+      applying the same removal logic everywhere the blink positions are used.
+
+    Parameters
+    ----------
+    arr : numpy.ndarray
+        A (2, N) array of blink start/end indices to filter.
+    blink_component : numpy.ndarray
+        The 1D candidate signal used for blink detection.
+    params : dict
+        Blink detection parameters containing ``sfreq``, ``min_event_len``, and
+        optionally ``min_event_sep``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The filtered (2, M) array with close-pair blink candidates removed.
+    """
     if arr.size == 0:
         return arr
 
