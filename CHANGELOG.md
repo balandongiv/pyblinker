@@ -8,6 +8,7 @@
 ### Changed
 - Centralize close-pair filtering in blink position detection so pipeline and comparisons share MATLAB-aligned logic.
 - Use repository-relative paths in migration comparison tests for portability.
+- Use repository-relative fixture paths in extract_blinks_eeg migration comparison.
 
 ## [0.1.4] - 2026-01-20
 
