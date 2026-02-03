@@ -5,6 +5,9 @@
 ### Fixed
 - Align blink candidate minimum-separation removal with MATLAB logic by treating candidates at or under the separation threshold as overlapping.
 
+### Changed
+- Centralize close-pair filtering in blink position detection so pipeline and comparisons share MATLAB-aligned logic.
+
 ## [0.1.4] - 2026-01-20
 
 ### Changed

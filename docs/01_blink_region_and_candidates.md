@@ -26,6 +26,7 @@ The primary automated method in `pyblinker` follows the legacy BLINKER approach:
 *   **Verification (Tutorials & Tests)**:
     *   **Tutorials**: `tutorial/blinker/migration/migration_step1a_tutorial_validate_candidate_positions.py`
     *   **Unit Tests**: `test/blinker_pyblinker_comparison/test_get_blink_position.py`
+*   **Note**: The close-pair filtering logic is centralized so the pipeline and comparisons share the same MATLAB-aligned handling.
 
 ### 2. Manual Annotation
 Users can manually annotate blinks using:

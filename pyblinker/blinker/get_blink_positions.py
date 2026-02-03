@@ -63,19 +63,29 @@ def _find_blink_candidates(
     return np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64)
 
 
-def _remove_close_blinks(
-    starts: np.ndarray, ends: np.ndarray, *, sfreq: float, min_event_sep: float
-) -> tuple[np.ndarray, np.ndarray]:
+def _filter_close_pairs_from_signal(
+    arr: np.ndarray, *, blink_component: np.ndarray, params: dict
+) -> np.ndarray:
+    if arr.size == 0:
+        return arr
+
+    threshold, min_blink_frames = _compute_detection_threshold(
+        blink_component, params
+    )
+    starts, ends = _find_blink_candidates(
+        blink_component, threshold, min_blink_frames
+    )
     if ends.size == 0:
-        return starts, ends
+        return arr[:, :0]
 
-    pos_mask = np.ones(ends.size, dtype=bool)
-    blink_durations = (starts[1:] - ends[:-1]) / sfreq
+    min_event_sep = params.get("min_event_sep", params["min_event_len"])
+    blink_durations = (starts[1:] - ends[:-1]) / params["sfreq"]
     close_indices = np.argwhere(blink_durations <= min_event_sep).ravel()
-
-    pos_mask[close_indices] = False
-    pos_mask[close_indices + 1] = False
-    return starts[pos_mask], ends[pos_mask]
+    close_pairs = {(starts[idx], ends[idx]) for idx in close_indices}
+    close_pairs.update((starts[idx + 1], ends[idx + 1]) for idx in close_indices)
+    pairs = np.column_stack((arr[0], arr[1]))
+    mask = np.array([tuple(row) not in close_pairs for row in pairs], dtype=bool)
+    return arr[:, mask]
 
 
 def get_blink_position(
@@ -124,15 +134,15 @@ def get_blink_position(
     )
 
     if arr_end.size == 0:
-        return pd.DataFrame({'start_blink': [], 'end_blink': []})
+        return pd.DataFrame({"start_blink": [], "end_blink": []})
 
-    min_event_sep = params.get("min_event_sep", params["min_event_len"])
-    arr_start, arr_end = _remove_close_blinks(
-        arr_start, arr_end, sfreq=params["sfreq"], min_event_sep=min_event_sep
+    arr = np.vstack((arr_start, arr_end))
+    arr = _filter_close_pairs_from_signal(
+        arr, blink_component=blink_component, params=params
     )
 
     blink_position = {
-        "start_blink": arr_start,
-        "end_blink": arr_end,
+        "start_blink": arr[0],
+        "end_blink": arr[1],
     }
     return pd.DataFrame(blink_position)
