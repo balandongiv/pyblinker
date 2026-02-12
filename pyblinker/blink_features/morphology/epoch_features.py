@@ -38,14 +38,12 @@ _LEGACY_MORPHOLOGY_METRICS = (
     "closing_time_tent",
     "reopening_time_tent",
     "time_shut_tent",
+    "peak_time_blink",
+    "peak_time_tent",
+    "peak_max_blink",
+    "peak_max_tent",
     "inter_blink_max_amp",
-	# "peak_time_blink",  			# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_time_tent",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_max_blink",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_max_tent",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "inter_blink_max_vel_base",	# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "inter_blink_max_vel_zero",	# TODO This metric is available in BLINKER but still not computed in pyblinker
-		)
+)
 _DURATION_STYLE_MAP = {
     "base": "duration_base",
     "zero": "duration_zero",
@@ -311,6 +309,10 @@ def _apply_morphology_properties(
         "reopening_time_tent",
         "time_shut_tent",
         "inter_blink_max_amp",
+        "peak_time_blink",
+        "peak_time_tent",
+        "peak_max_blink",
+        "peak_max_tent",
     ):
         if col not in blink_df.columns:
             blink_df[col] = np.nan
@@ -367,7 +369,15 @@ def _apply_morphology_properties(
     if peak_valid.any():
         peak_df = blink_df.loc[peak_valid, :].copy()
         compute_blink_peak_times(peak_df, signal, sfreq, fitted=True)
-        blink_df.loc[peak_valid, ["inter_blink_max_amp"]] = peak_df[["inter_blink_max_amp"]]
+        copy_cols = [
+            "inter_blink_max_amp",
+            "peak_time_blink",
+            "peak_time_tent",
+            "peak_max_blink",
+            "peak_max_tent",
+        ]
+        copy_cols = [c for c in copy_cols if c in peak_df.columns]
+        blink_df.loc[peak_valid, copy_cols] = peak_df[copy_cols]
 
     return blink_df
 
@@ -494,8 +504,8 @@ class MorphologyBlinkFeatureExtractor:
             raise ValueError("epochs.metadata must be provided")
 
     def _prepare_inputs(
-        *,
         self,
+        *,
         picks: str | Sequence[str] | None,
         sfreq: float,
     ) -> Tuple[List[str], dict, pd.Index, int, int]:

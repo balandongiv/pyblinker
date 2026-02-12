@@ -1,34 +1,5 @@
-"""Integration of blink counts with morphology features.
-In blinker, the morphology features includes the following
-_LEGACY_MORPHOLOGY_METRICS = (
-    "duration_zero",
-    "duration_base",
-    "duration_tent",
-    "duration_half_base",
-    "duration_half_zero",
-    "closing_time_zero",
-    "reopening_time_zero",
-    "time_shut_zero",
-    "time_shut_base",
-    "closing_time_tent",
-    "reopening_time_tent",
-    "time_shut_tent",
-    "inter_blink_max_amp",
-	# "peak_time_blink",  			# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_time_tent",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_max_blink",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "peak_max_tent",				# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "inter_blink_max_vel_base",	# TODO This metric is available in BLINKER but still not computed in pyblinker
-	# "inter_blink_max_vel_zero",	# TODO This metric is available in BLINKER but still not computed in pyblinker
+"""Integration coverage for epoch morphology aggregation columns."""
 
-	and is computed using
-	from pyblinker.blink_features.morphology.core_metrics import (
-    compute_blink_durations,
-    compute_blink_peak_times,
-    compute_time_base_shut,
-    compute_time_zero_shut,
-)
-	"""
 from __future__ import annotations
 
 import unittest
@@ -37,10 +8,44 @@ from pathlib import Path
 import mne
 
 from pyblinker.blink_features.morphology import compute_epoch_morphology_features
+from pyblinker.blink_features.morphology.epoch_features import _available_styles
 from pyblinker.segmentation.refinement import slice_raw_into_mne_epochs_refine_annot
 from test.segment_config import build_segment_config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+EEG_CHANNEL = "EEG-E8"
+
+_REQUIRED_LEGACY_MORPHOLOGY_METRICS = {
+    "zero": (
+        "duration_zero",
+        "closing_time_zero",
+        "reopening_time_zero",
+        "time_shut_zero",
+    ),
+    "base": (
+        "duration_base",
+        "time_shut_base",
+    ),
+    "tent": (
+        "duration_tent",
+        "closing_time_tent",
+        "reopening_time_tent",
+        "time_shut_tent",
+    ),
+    "half": (
+        "duration_half_base",
+        "duration_half_zero",
+    ),
+    "peak": (
+        "peak_time_blink",
+        "peak_time_tent",
+        "peak_max_blink",
+        "peak_max_tent",
+    ),
+    "inter_blink": (
+        "inter_blink_max_amp",
+    ),
+}
 
 
 class TestMorphologyAggregation(unittest.TestCase):
@@ -58,21 +63,21 @@ class TestMorphologyAggregation(unittest.TestCase):
             segmentation_type=segmentation_config,
         )
 
-    def test_merge_blink_counts(self) -> None:
-        """Joined DataFrame exposes why certain rows are NaN."""
-        picks = ["EEG-E8"]
-        df=compute_epoch_morphology_features(self.epochs, picks=picks)
-        j=1
-        # expected_cols = morphology_column_names(picks) + ["n_blinks"]
-        # assert_df_has_columns(self, merged, expected_cols)
-        # assert_numeric_or_nan(self, merged.iloc[0])
+    def test_epoch_output_contains_expected_morphology_features(self) -> None:
+        """Epoch output includes expected style-aware and legacy morphology fields."""
+        df = compute_epoch_morphology_features(self.epochs, picks=[EEG_CHANNEL])
+        styles = _available_styles(tuple(self.epochs.metadata.columns), "eeg")
+        self.assertTrue(styles)
 
-        # feature_cols = morphology_column_names(picks)
-        # for idx, row in merged.iterrows():
-        #     if row["n_blinks"] == 0:
-        #         self.assertTrue(row[feature_cols].isna().all())
-        #     else:
-        #         self.assertTrue(np.isfinite(row[feature_cols]).any())
+        for style in styles:
+            expected = f"eeg__{style}__morphology__duration_mean__{EEG_CHANNEL}"
+            self.assertIn(expected, df.columns)
+
+        for metrics in _REQUIRED_LEGACY_MORPHOLOGY_METRICS.values():
+            for metric in metrics:
+                self.assertIn(metric, df.columns)
+
+        self.assertGreater(df.notna().sum().sum(), 0)
 
 
 if __name__ == "__main__":
