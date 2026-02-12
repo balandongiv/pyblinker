@@ -268,6 +268,83 @@ def _style_windows(
     return windows
 
 
+def _metrics_for_style(style: str) -> List[str]:
+    """Return all kinematic metric names emitted for a segmentation style.
+
+    Style-specific metrics receive a ``_<style>`` suffix unless the metric stem
+    is explicitly marked as style-independent by
+    ``KINEMATIC_METRICS_NO_STYLE``. Extended per-blink metrics are appended
+    unchanged because they are computed from landmark geometry rather than
+    segmentation-style internals.
+    """
+
+    metrics = [
+        stem if stem in KINEMATIC_METRICS_NO_STYLE else f"{stem}_{style}"
+        for stem in KINEMATIC_METRIC_STEMS
+    ]
+    metrics.extend(_EXTENDED_KINEMATIC_METRICS)
+    return metrics
+
+
+def _compute_epoch_channel_style_stats(
+    *,
+    metadata_row: Mapping[str, object],
+    channel_signal: object,
+    channel_dx1: object,
+    channel_dx2: object,
+    modality: str,
+    style: str,
+    sfreq: float,
+    n_times: int,
+) -> Dict[str, Dict[str, float]]:
+    """Compute per-metric summary stats for one epoch/channel/style triplet.
+
+    The function gathers window-based metrics from segmented blink snippets and
+    merges them with extended metrics (velocity and amplitude/velocity ratio
+    derivatives) computed from landmark metadata across the full channel signal.
+
+    Returns
+    -------
+    dict
+        Mapping of metric name to statistics dictionary (``mean``, ``std``,
+        ``cv``), suitable for direct insertion into the aggregated epoch record.
+    """
+
+    metrics_for_style = _metrics_for_style(style)
+    windows = _style_windows(metadata_row, modality, style)
+    blink_df = _compute_extended_kinematic_metrics(
+        _build_kinematic_blink_frame(metadata_row, modality=modality, sfreq=sfreq),
+        channel_signal,
+        sfreq,
+        modality=modality,
+    )
+
+    per_metric: Dict[str, List[float]] = {m: [] for m in metrics_for_style}
+    for onset_s, duration_s in windows:
+        sl = segment_to_samples(onset_s, duration_s, sfreq, n_times)
+        segment = {
+            "raw": channel_signal[sl],
+            "dx1": channel_dx1[sl],
+            "dx2": channel_dx2[sl],
+        }
+        metrics = compute_segment_kinematics(
+            segment,
+            sfreq,
+            method=style,
+            modality=modality,
+        )
+        for metric in metrics_for_style:
+            if metric in _EXTENDED_KINEMATIC_METRICS:
+                continue
+            per_metric[metric].append(metrics[metric])
+
+    for metric in _EXTENDED_KINEMATIC_METRICS:
+        if metric in blink_df.columns:
+            per_metric[metric] = blink_df[metric].tolist()
+
+    return {metric: _safe_stats(values) for metric, values in per_metric.items()}
+
+
 class KinematicBlinkFeatureExtractor:
     """Compute blink kinematic features from MNE objects."""
 
@@ -328,12 +405,7 @@ class KinematicBlinkFeatureExtractor:
         column_set: Set[str] = set()
         for mod, channels in modality_channels.items():
             for style in sorted(styles_by_modality.get(mod, {"base"})):
-                metrics_for_style = [
-                    stem if stem in KINEMATIC_METRICS_NO_STYLE else f"{stem}_{style}"
-                    for stem in KINEMATIC_METRIC_STEMS
-                ]
-                metrics_for_style.extend(_EXTENDED_KINEMATIC_METRICS)
-                for metric in metrics_for_style:
+                for metric in _metrics_for_style(style):
                     for stat in _STATS:
                         for ch in channels:
                             column_set.add(f"{mod}__{style}__kinematic__{metric}_{stat}__{ch}")
@@ -353,60 +425,19 @@ class KinematicBlinkFeatureExtractor:
             record: Dict[str, float] = {}
             for modality, channels in modality_channels.items():
                 styles = styles_by_modality.get(modality, {"base"})
-                # use_fallback = fallback_styles.get(modality, False)
                 for style in sorted(styles):
-                    metrics_for_style = [
-                        stem if stem in KINEMATIC_METRICS_NO_STYLE else f"{stem}_{style}"
-                        for stem in KINEMATIC_METRIC_STEMS
-                    ]
-                    metrics_for_style.extend(_EXTENDED_KINEMATIC_METRICS)
-                    windows = _style_windows(metadata_row, modality, style)
-                    # if use_fallback and not windows:
-                    #     onset_key = f"blink_onset_{modality}"
-                    #     duration_key = f"blink_duration_{modality}"
-                    #     onsets = ensure_list(metadata_row.get(onset_key)) if metadata_row.get(onset_key) is not None else []
-                    #     durations = (
-                    #         ensure_list(metadata_row.get(duration_key))
-                    #         if metadata_row.get(duration_key) is not None
-                    #         else []
-                    #     )
-                    #     windows = [
-                    #         (float(o), float(d))
-                    #         for o, d in zip(onsets, durations)
-                    #         if o is not None and d is not None and not (pd.isna(o) or pd.isna(d))
-                    #     ]
                     for ch in channels:
-                        blink_df = _compute_extended_kinematic_metrics(
-                            _build_kinematic_blink_frame(metadata_row, modality=modality, sfreq=sfreq),
-                            channel_data[ch]["raw"][ei],
-                            sfreq,
+                        metric_stats = _compute_epoch_channel_style_stats(
+                            metadata_row=metadata_row,
+                            channel_signal=channel_data[ch]["raw"][ei],
+                            channel_dx1=channel_data[ch]["dx1"][ei],
+                            channel_dx2=channel_data[ch]["dx2"][ei],
                             modality=modality,
+                            style=style,
+                            sfreq=sfreq,
+                            n_times=n_times,
                         )
-                        per_metric: Dict[str, List[float]] = {m: [] for m in metrics_for_style}
-                        for onset_s, duration_s in windows:
-                            sl = segment_to_samples(onset_s, duration_s, sfreq, n_times)
-                            segment = {
-                                "raw": channel_data[ch]["raw"][ei, sl],
-                                "dx1": channel_data[ch]["dx1"][ei, sl],
-                                "dx2": channel_data[ch]["dx2"][ei, sl],
-                            }
-                            # if segment["raw"].size == 0:
-                            #     continue
-                            metrics = compute_segment_kinematics(
-                                segment,
-                                sfreq,
-                                method=style,
-                                modality=modality,
-                            )
-                            for m in metrics_for_style:
-                                if m in _EXTENDED_KINEMATIC_METRICS:
-                                    continue
-                                per_metric[m].append(metrics[m])
-                        for m in _EXTENDED_KINEMATIC_METRICS:
-                            if m in blink_df.columns:
-                                per_metric[m] = blink_df[m].tolist()
-                        for metric, values in per_metric.items():
-                            stats = _safe_stats(values)
+                        for metric, stats in metric_stats.items():
                             for stat_name, value in stats.items():
                                 column = f"{modality}__{style}__kinematic__{metric}_{stat_name}__{ch}"
                                 record[column] = value

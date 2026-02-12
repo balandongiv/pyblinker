@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- Refactor kinematic epoch aggregation by extracting style-metric selection and per-epoch/channel/style statistic computation into dedicated helper functions, reducing nested loop complexity in `KinematicBlinkFeatureExtractor.compute` while preserving existing outputs.
+- Clarify helper docstrings for style metric resolution and epoch-channel-style kinematic aggregation to improve readability and debugging workflows.
+
 ## [0.1.11] - 2026-02-12
 
 ### Fixed
