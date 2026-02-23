@@ -8,13 +8,14 @@ Features are computed **per channel**, and column names are suffixed with
 from __future__ import annotations
 from pyblinker.logging import get_logger
 
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
 import mne
 import pandas as pd
 
 from .common import compute_energy_metrics
-from .helpers import extract_blink_windows, segment_to_samples, _safe_stats
+from .helpers import _safe_stats
+from ...utils.iter_utils import ensure_list
 
 logger = get_logger(__name__)
 
@@ -41,10 +42,10 @@ def _compute_epoch_channel_energy_stats(
     *,
     metadata_row: pd.Series,
     ch: str,
-    epoch_index: int,
     signal_1d,
     sfreq: float,
     n_times: int,
+    info: mne.Info | None,
 ) -> Dict[str, Dict[str, float]]:
     """Compute per-metric summary stats for all blinks in one epoch/channel.
 
@@ -54,18 +55,22 @@ def _compute_epoch_channel_energy_stats(
         Mapping of metric name -> stats dict (mean/std/cv). Stats are NaN if
         there are no valid blink segments.
     """
-    windows: List[Tuple[float, float]] = extract_blink_windows(metadata_row, ch, epoch_index)
+    windows = _channel_windows(
+        metadata_row=metadata_row,
+        channel_name=ch,
+        info=info,
+        n_times=n_times,
+    )
 
     energies: List[float] = []
     tkeo_vals: List[float] = []
     lengths: List[float] = []
     vel_ints: List[float] = []
 
-    for onset_s, duration_s in windows:
-        sl = segment_to_samples(onset_s, duration_s, sfreq, n_times)
-        # Guard against zero/negative-length slices.
-        if getattr(sl, "stop", 0) <= getattr(sl, "start", 0):
+    for start_idx, end_idx in windows:
+        if start_idx >= n_times:
             continue
+        sl = slice(max(0, start_idx), min(end_idx, n_times))
         segment = signal_1d[sl]
         if getattr(segment, "size", 0) == 0:
             continue
@@ -87,6 +92,87 @@ def _compute_epoch_channel_energy_stats(
         _METRICS[2]: stats_len,
         _METRICS[3]: stats_vel,
     }
+
+
+def _infer_modality(channel_name: str, info: mne.Info | None = None) -> str:
+    """Infer modality label (ear/eeg/eog) from channel naming/type hints."""
+
+    ch_lower = channel_name.lower()
+    if "ear" in ch_lower:
+        return "ear"
+
+    if info is not None and channel_name in info["ch_names"]:
+        ch_type = info.get_channel_types(picks=[channel_name])[0]
+        if ch_type in {"eeg", "eog"}:
+            return ch_type
+
+    if "eog" in ch_lower:
+        return "eog"
+    return "eeg"
+
+
+def _style_windows(
+    metadata_row: Mapping[str, object],
+    modality: str,
+    style: str,
+    n_times: int,
+) -> List[Tuple[int, int]]:
+    """Extract frame-aligned blink windows for a modality/style pair."""
+
+    style_landmarks = {
+        "zero_base": ("start__left_zero", "end__right_zero"),
+        "tent": ("start__left_x_intercept", "end__right_x_intercept"),
+        "half_peak": ("start__left_base_half_height", "end__right_base_half_height"),
+        # canonical aliases used in morphology/kinematics metadata
+        "zero": ("start__left_zero", "end__right_zero"),
+        "base": ("start__left_base", "end__right_base"),
+        "half_base": ("start__left_base_half_height", "end__right_base_half_height"),
+        "half_zero": ("start__left_zero_half_height", "end__right_zero_half_height"),
+    }
+
+    if style in style_landmarks:
+        start_prefix, end_prefix = style_landmarks[style]
+        starts = ensure_list(metadata_row.get(f"{start_prefix}__{modality}"))
+        ends = ensure_list(metadata_row.get(f"{end_prefix}__{modality}"))
+    else:
+        starts = ensure_list(metadata_row.get(f"start__{style}__{modality}"))
+        ends = ensure_list(metadata_row.get(f"end__{style}__{modality}"))
+
+    windows: List[Tuple[int, int]] = []
+    for start_frame, end_frame in zip(starts, ends):
+        if start_frame is None or end_frame is None:
+            continue
+        if pd.isna(start_frame) or pd.isna(end_frame):
+            continue
+        start_idx = max(int(round(float(start_frame))), 0)
+        end_idx = min(int(round(float(end_frame))), n_times)
+        if end_idx <= start_idx:
+            continue
+        windows.append((start_idx, end_idx))
+    return windows
+
+
+def _channel_windows(
+    *,
+    metadata_row: Mapping[str, object],
+    channel_name: str,
+    info: mne.Info | None,
+    n_times: int,
+) -> List[Tuple[int, int]]:
+    """Resolve segmentation windows using channel-type-aware style defaults."""
+
+    modality = _infer_modality(channel_name, info)
+    if modality == "ear":
+        candidate_styles = ("th_interpolation", "th_point")
+    else:
+        candidate_styles = ("zero_base", "tent", "half_peak", "zero", "base", "half_base")
+
+    for style in candidate_styles:
+        windows = _style_windows(metadata_row, modality, style, n_times)
+        if windows:
+            return windows
+
+    return []
 
 
 def compute_energy_features(
@@ -158,10 +244,10 @@ def compute_energy_features(
             stats_by_metric = _compute_epoch_channel_energy_stats(
                 metadata_row=metadata_row,
                 ch=ch,
-                epoch_index=ei,
                 signal_1d=data[ei, ci, :],
                 sfreq=sfreq,
                 n_times=n_times,
+                info=epochs.info,
             )
             for metric, stats in stats_by_metric.items():
                 for stat_name, value in stats.items():

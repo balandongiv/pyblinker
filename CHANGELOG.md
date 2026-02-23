@@ -8,6 +8,7 @@
 ### Changed
 - Rename aggregated legacy morphology outputs to the new fully qualified naming format (`{modality}__{style}__morphology__{metric}_{stat}__{channel}`) for EEG/EOG legacy metric exports.
 - Update morphology integration tests to assert the new legacy naming convention with mean/std/cv variants in full-modality and EEG-only coverage.
+- Refactor epoch energy-window extraction to use modality-aware style segmentation (`zero_base`/`tent`/`half_peak` for EEG/EOG and `th_interpolation` for EAR) instead of deprecated onset/duration windows.
 
 ### Fixed
 - Emit an actionable runtime warning when required legacy morphology columns are missing from `blink_df`, including the missing column names and guidance to review `_REQUIRED_LEGACY_MORPHOLOGY_METRICS`.
