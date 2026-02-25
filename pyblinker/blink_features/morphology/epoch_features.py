@@ -20,6 +20,7 @@ from .per_blink import compute_blink_waveform_metrics
 from .._blink_metrics_shared import ALL_METHODS
 from ..energy.helpers import _safe_stats, segment_to_samples
 from ..utils.aggregation import prepare_epoch_channel_data
+from ..constants import cast_columns_to_object
 from ...utils.epoch_utils import resolve_channels
 from ...utils.iter_utils import ensure_list
 
@@ -598,7 +599,7 @@ class MorphologyBlinkFeatureExtractor:
         df = pd.DataFrame.from_records(records, index=index, columns=columns)
         df = _add_legacy_ear_channel_aliases(df)
         logger.debug("Morphology feature DataFrame shape: %s", df.shape)
-        return df
+        return cast_columns_to_object(df)
 
     # ------------------------------------------------------------------
     # Input preparation & validation
@@ -1252,7 +1253,7 @@ def _add_legacy_ear_channel_aliases(df: pd.DataFrame) -> pd.DataFrame:
     """Expose uppercase EAR channel aliases used by historical tests."""
 
     if df.empty:
-        return df
+        return cast_columns_to_object(df)
 
     alias_updates: Dict[str, pd.Series] = {}
     for col in df.columns:
@@ -1268,8 +1269,8 @@ def _add_legacy_ear_channel_aliases(df: pd.DataFrame) -> pd.DataFrame:
         alias_updates[alias_col] = df[col]
 
     if not alias_updates:
-        return df
-    return df.assign(**alias_updates)
+        return cast_columns_to_object(df)
+    return cast_columns_to_object(df).assign(**alias_updates)
 
 def compute_morphology_features(
 		epochs: mne.Epochs, picks: str | Sequence[str] | None = None

@@ -375,3 +375,32 @@ The core helpers are structured to compute metrics one blink at a time so per-bl
 *   `test/blink_features/energy/test_energy_ear_only_config.py`
 *   `test/blink_features/morphology/test_morphology_ear_eeg_eog.py`
 
+
+## Refactor Update (Shared Feature Infrastructure)
+
+### The Feature/Change
+- Added shared blink-feature infrastructure for constants/config (`BlinkerConfig` + `DEFAULT_CONFIG`), reusable style-window extraction helpers, and a common compute skeleton scaffold for epoch/channel/style orchestration.
+- Preserved existing output naming and baseline behavior while forcing legacy object-typed DataFrame column indexes for compatibility with existing pickle-based baseline assertions.
+- Frequency-domain optional dependency handling was hardened so missing `PyWavelets` no longer crashes imports and instead yields informative warnings with NaN outputs.
+
+### Related Code
+- `pyblinker/blink_features/constants.py`
+- `pyblinker/blink_features/default_setting.py`
+- `pyblinker/blink_features/utils/style_windows.py`
+- `pyblinker/blink_features/compute_skeleton.py`
+- `pyblinker/blink_features/aggregate.py`
+- `pyblinker/blink_features/frequency_domain/features.py`
+- `pyblinker/blink_features/frequency_domain/aggregate.py`
+- `pyblinker/blink_features/morphology/epoch_features.py`
+- `pyblinker/blink_features/kinematics/kinematic_features.py`
+
+### Verification (Tutorials & Tests)
+- Tutorials: existing feature tutorials remain valid, notably:
+  - `tutorial/05c_minimal_blink_feature_tutorial.py`
+  - `tutorial/05a_ear_energy_feature_tutorial.py`
+  - `tutorial/05b_eeg_energy_feature_tutorial.py`
+- Unit tests:
+  - `test/blink_features/test_blink_features_ear_eeg_eog.py`
+  - `test/blink_features/frequency_domain/test_frequency_domain_blink_features_ear_eeg_eog.py`
+  - `test/blink_features/morphology/test_morphology_ear_eeg_eog.py`
+  - `test/run_all_tests.py`

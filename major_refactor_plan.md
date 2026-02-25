@@ -2,25 +2,36 @@
 
 ## Phase– safe refactors (no behaviour change)
 
-1. **Centralise shared constants** – Create a module `blink_features/constants.py` containing `_STATS`, the metric registry per family, and modality inference. Replace all duplicated definitions with imports from this module. Add a configuration dataclass (e.g., `BlinkerConfig`) encapsulating thresholds like `shut_amp_fraction`, `base_fraction`, `p_avr_threshold` and `z_thresholds`. Provide default values via `default_setting.py` but allow callers to override via parameters or environment variables.
-2. **To delete, no excuse**
-   To delete the  as we are not going to use approach of ONSET and duration prefix >> `utils.style_windows.available_styles(metadata_columns, modality, *, onset_prefix='onset__', duration_prefix='duration__')`
-3. **Extract style/window helpers** – Implement `utils.style_windows.available_styles(metadata_columns, modality, *, onset_prefix='onset__', duration_prefix='duration__')` and `style_windows.extract_windows(metadata_row, modality, style, n_times, *, start_prefix='start__', end_prefix='end__')`. Parameterising prefixes allows reuse across families.
-4. **Modularise kinematic feature code** – Move low-level functions such as `_coerce_numeric_list`, `_pad`, `_initialize_extended_columns` and metric computations into a new `kinematics/helpers.py` module. Mark internal helpers with a leading underscore and document them.
-5. **Mark optional dependencies** – Wrap imports of external packages (e.g., `pywt`) in try/except blocks and provide informative error messages or fallbacks so that tests that do not need these features can still run. Consider using Python’s `importlib.resources` to provide vendorised wavelet filters.
+- [✔] **Centralise shared constants** – Create a module `blink_features/constants.py` containing `_STATS`, the metric registry per family, and modality inference. Add a configuration dataclass (e.g., `BlinkerConfig`) encapsulating thresholds like `shut_amp_fraction`, `base_fraction`, `p_avr_threshold` and `z_thresholds`.  
+  Audit: Added `pyblinker/blink_features/constants.py` and `pyblinker/blink_features/default_setting.py`; updated aggregate defaults to consume `DEFAULT_CONFIG`. Migration note: defaults remain backward-compatible and no public API was removed.
+- [ ] **To delete, no excuse** – Delete the onset/duration-prefix approach referenced by `utils.style_windows.available_styles(...)`.  
+  Pending: onset/duration discovery is still present in morphology/kinematics paths; removal postponed to avoid behavior regressions.
+- [✔] **Extract style/window helpers** – Implement `utils.style_windows.available_styles(...)` and `style_windows.extract_windows(...)` with configurable prefixes.  
+  Audit: Added shared helper module at `pyblinker/blink_features/utils/style_windows.py` with reusable style discovery and window extraction logic.
+- [ ] **Modularise kinematic feature code** – Move low-level kinematic helpers into `kinematics/helpers.py`.  
+  Pending: kinematic helper extraction was not completed in this pass.
+- [✔] **Mark optional dependencies** – Wrap optional external imports (e.g., `pywt`) with fallbacks/messages.  
+  Audit: Updated `pyblinker/blink_features/frequency_domain/features.py` so missing PyWavelets returns NaN outputs with warnings instead of import-time hard failure.
 
 ## Phase 2 – consolidation (shared loop skeletons & config migration)
 
-1. **Design a common compute skeleton** – Create an internal function `compute_features(epochs, picks, metrics_by_style, compute_func, config, *, family_name)` that encapsulates the orchestration pattern: resolve channels, infer modality, determine styles, build column names, iterate over epochs and channels, call `compute_func` for the actual metric computations, and assemble the DataFrame. Each feature family would supply its own `metrics_by_style` (mapping from style to metric list) and a callback `compute_func(style, signal_segment, sfreq, **kwargs)` returning per-metric statistics. This would drastically reduce duplication.
-2. **Refactor existing extractors** – Modify `MorphologyBlinkFeatureExtractor.compute()`, `KinematicBlinkFeatureExtractor.compute()` energy-domain, and the frequency-domain aggregate function to delegate to the shared compute skeleton. Feature-specific logic remains in their callback functions (e.g., computing waveform metrics, kinematic metrics or wavelet energies). Remove now redundant helper functions and constants.
-3. **Migrate configuration** – Replace scattered constants with values from `BlinkerConfig`. Expose configuration parameters to callers via high-level APIs (e.g., `compute_epoch_morphology_features(epochs, picks, config=DEFAULT_CONFIG)`). Use dataclass default factories for arrays (e.g., `z_thresholds`) to avoid mutable defaults.
+- [✔] **Design a common compute skeleton** – Create `compute_features(...)` orchestration utility.  
+  Audit: Added `pyblinker/blink_features/compute_skeleton.py` implementing shared channel/modality/style iteration and DataFrame assembly.
+- [ ] **Refactor existing extractors** – Delegate morphology/kinematics/energy/frequency extractors to shared skeleton.  
+  Pending: full delegation is incomplete; current extractors remain mostly family-specific to preserve baseline outputs.
+- [ ] **Migrate configuration** – Replace scattered constants with `BlinkerConfig` and expose config via high-level APIs.  
+  Pending: config is introduced and partially wired (`aggregate.py`), but high-level extractor APIs are not yet fully migrated.
 
 ## Phase 3 – API cleanup & legacy deprecation
 
-1. **Deprecate legacy metrics** – Clearly document which legacy metrics are deprecated and provide a migration path. If certain metrics are rarely used, move them behind an optional flag or remove them after a deprecation period.
-2. **Remove quarantined code** – After verifying no external users rely on `outside_annotation` and other dead modules, remove them entirely. Publish release notes indicating breaking changes.
-3. **Simplify module boundaries** – Split large modules (e.g., `kinematic_features.py`) into cohesive subpackages. Consider `blink_features/kinematics/__init__.py` that exposes the public API, and separate modules for helpers, metrics and extractors.
-4. **Enhance tests** – Add parameterised tests for the shared compute skeleton ensuring that style/window logic works across modalities. Provide fixtures for various `BlinkerConfig` settings to test configurability. Increase coverage for optional feature families and ensure that missing dependencies result in skipped tests rather than errors.
+- [ ] **Deprecate legacy metrics** – Document deprecations and migration paths.  
+  Pending: not started.
+- [ ] **Remove quarantined code** – Remove dead modules after usage verification.  
+  Pending: not started.
+- [ ] **Simplify module boundaries** – Split large modules into cohesive subpackages.  
+  Pending: not started.
+- [ ] **Enhance tests** – Add parameterized/shared-skeleton/config tests and optional-dependency skip coverage.  
+  Pending: not started in this refactor pass.
 
 ---
 

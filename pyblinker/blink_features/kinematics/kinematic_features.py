@@ -25,6 +25,7 @@ from .per_blink import compute_segment_kinematics
 from ..energy.helpers import _safe_stats
 from ...utils.iter_utils import ensure_list
 from ..utils.aggregation import prepare_epoch_channel_data
+from ..constants import cast_columns_to_object
 
 logger = get_logger(__name__)
 
@@ -512,14 +513,14 @@ class KinematicBlinkFeatureExtractor:
         df = pd.DataFrame.from_records(records, index=index, columns=columns)
         # df = _add_legacy_ear_interpolation_aliases(df) # If there is error, this is the place to check for the column names in the test and make sure they match the expected format.
         logger.debug("Kinematic feature DataFrame shape: %s", df.shape)
-        return df
+        return cast_columns_to_object(df)
 
 
 def _add_legacy_ear_interpolation_aliases(df: pd.DataFrame) -> pd.DataFrame:
     """Expose historical EAR interpolation column aliases used by old tests."""
 
     if df.empty:
-        return df
+        return cast_columns_to_object(df)
 
     alias_updates: Dict[str, pd.Series] = {}
     for col in df.columns:
@@ -532,9 +533,9 @@ def _add_legacy_ear_interpolation_aliases(df: pd.DataFrame) -> pd.DataFrame:
         alias_updates[alias_col] = df[col]
 
     if not alias_updates:
-        return df
+        return cast_columns_to_object(df)
 
-    return df.assign(**alias_updates)
+    return cast_columns_to_object(df).assign(**alias_updates)
 
 
 def compute_kinematic_features(

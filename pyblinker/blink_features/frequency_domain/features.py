@@ -13,11 +13,8 @@ import numpy as np
 
 try:
     import pywt
-except ModuleNotFoundError as error:  # pragma: no cover - import-time guard
-    raise ModuleNotFoundError(
-        "PyWavelets is required for frequency-domain blink features. "
-        "Install it with `pip install PyWavelets`."
-    ) from error
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    pywt = None
 
 logger = get_logger(__name__)
 
@@ -51,6 +48,10 @@ def _compute_wavelet_energies(
             "Wavelet energy computation received empty segment; returning NaNs",
             extra={"segment_length": int(segment.size)},
         )
+        return [float("nan")] * max_level
+
+    if pywt is None:
+        logger.warning("PyWavelets is not installed; returning NaNs for wavelet energies")
         return [float("nan")] * max_level
 
     max_level_available = min(pywt.dwt_max_level(segment.size, "db4"), max_level)

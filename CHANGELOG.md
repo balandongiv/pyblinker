@@ -15,6 +15,9 @@
 - Refactor frequency-domain wavelet epoch aggregation to use channel-aware frame-based segmentation windows (EEG/EOG style landmarks plus `half`/`peak` aliases, and EAR threshold interpolation mapped to `th_point`) instead of deprecated onset/duration windows.
 - Rename aggregated legacy morphology outputs to the new fully qualified naming format (`{modality}__{style}__morphology__{metric}_{stat}__{channel}`) for EEG/EOG legacy metric exports.
 - Update morphology integration tests to assert the new legacy naming convention with mean/std/cv variants in full-modality and EEG-only coverage.
+- Add shared refactor scaffolding for blink features: `BlinkerConfig`/`DEFAULT_CONFIG`, shared constants, style-window helpers, and a reusable compute skeleton module.
+- Preserve legacy DataFrame-column compatibility by forcing object-typed column indexes in feature outputs used by baseline regression pickles.
+- Harden optional wavelet dependency behavior so missing `PyWavelets` now degrades gracefully with warnings and NaN outputs instead of import-time failure.
 
 ### Fixed
 - Emit an actionable runtime warning when required legacy morphology columns are missing from `blink_df`, including the missing column names and guidance to review `_REQUIRED_LEGACY_MORPHOLOGY_METRICS`.

@@ -14,6 +14,7 @@ from ...utils.iter_utils import ensure_list
 from .features import _compute_wavelet_energies
 from ..energy.helpers import _safe_stats
 from ..utils.aggregation import prepare_epoch_channel_data
+from ..constants import cast_columns_to_object
 
 logger = get_logger(__name__)
 
@@ -277,7 +278,7 @@ class FrequencyDomainBlinkFeatureExtractor:
 
         df = pd.DataFrame.from_records(records, index=index)
         logger.debug("Frequency-domain feature DataFrame shape: %s", df.shape)
-        return df
+        return cast_columns_to_object(df)
 
 
 def aggregate_frequency_domain_features(

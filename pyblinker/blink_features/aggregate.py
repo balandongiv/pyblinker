@@ -9,14 +9,17 @@ import mne
 import numpy as np
 import pandas as pd
 
+from .default_setting import DEFAULT_CONFIG
+from .constants import cast_columns_to_object
+
 from pyblinker.logging import get_logger
 logger = get_logger(__name__)
 
 _DEFAULT_WAVEFORM_PARAMS = {
-    "base_fraction": 0.5,
-    "shut_amp_fraction": 0.9,
-    "p_avr_threshold": 3,
-    "z_thresholds": np.array([[0.9, 0.98], [2.0, 5.0]]),
+    "base_fraction": DEFAULT_CONFIG.base_fraction,
+    "shut_amp_fraction": DEFAULT_CONFIG.shut_amp_fraction,
+    "p_avr_threshold": DEFAULT_CONFIG.p_avr_threshold,
+    "z_thresholds": DEFAULT_CONFIG.z_thresholds.copy(),
 }
 
 
@@ -388,7 +391,7 @@ def aggregate_blink_features(
         feature_cols = [col for col in result.columns if col != "epoch"]
         result = result.loc[:, ["epoch"] + sorted(feature_cols)]
 
-    return result
+    return cast_columns_to_object(result)
 
 
 __all__ = ["aggregate_blink_features"]
