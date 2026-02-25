@@ -13,15 +13,20 @@ import numpy as np
 
 try:
     import pywt
-except ModuleNotFoundError as error:  # pragma: no cover - import-time guard
-    raise ModuleNotFoundError(
-        "PyWavelets is required for frequency-domain blink features. "
-        "Install it with `pip install PyWavelets`."
-    ) from error
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    pywt = None
 
 logger = get_logger(__name__)
 
 
+
+
+def _require_pywt() -> None:
+    if pywt is None:
+        raise ModuleNotFoundError(
+            "PyWavelets is required for frequency-domain blink features. "
+            "Install it with `pip install PyWavelets`."
+        )
 def _compute_wavelet_energies(
     segment: np.ndarray, sfreq: float, max_level: int = 4
 ) -> list[float]:
@@ -43,6 +48,7 @@ def _compute_wavelet_energies(
         cannot be computed due to segment length or Nyquist constraints the
         corresponding entry is ``NaN``.
     """
+    _require_pywt()
     logger.debug("Computing wavelet energies for segment of length %d", segment.size)
     logger.debug("Sampling frequency: %.2f Hz", sfreq)
 

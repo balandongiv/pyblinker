@@ -6,6 +6,12 @@
 - Extend epoch-level legacy morphology aggregation to compute `mean`, `std`, and `cv` for each legacy metric via the shared `_safe_stats` convention.
 
 ### Changed
+- Introduce a shared compute orchestration skeleton (`ComputeContext`, `prepare_compute_context`, `build_epoch_metadata_row`) and migrate energy, frequency-domain, and kinematic extractors to use it for channel/modality/style loop preparation while preserving current outputs.
+- Refactor blink-feature internals to centralize shared constants and modality inference in `pyblinker/blink_features/constants.py`, including the new `BlinkerConfig` defaults/env-override scaffolding.
+- Extract shared style/window helpers into `pyblinker/blink_features/utils/style_windows.py` and rewire morphology, energy, frequency-domain, and kinematic extractors to use them while preserving existing column naming/output contracts.
+- Modularize kinematic low-level helper routines into `pyblinker/blink_features/kinematics/helpers.py` and keep extractor orchestration focused on per-epoch aggregation.
+- Keep DataFrame column-index compatibility with legacy object-dtype baseline fixtures under current pandas string-inference behavior.
+
 - Align EAR-only kinematics expected columns with threshold-interpolation landmarks (`th_interpolation`, `th_point`, and legacy ` interpolated_threshold`) and assert the full generated metric set via `build_expected_metrics`.
 - Correct EAR-only kinematics expected-metric schema to use `modality="ear"` in `build_expected_metrics`, matching EAR feature column prefixes.
 - Refactor EAR-only kinematics test to define `REQUIRED_KINEMATICS_METRICS` via `build_expected_metrics` and shared/style-suffixed metric generation for parity with EEG/EOG kinematics tests.

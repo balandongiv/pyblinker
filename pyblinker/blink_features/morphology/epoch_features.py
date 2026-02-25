@@ -18,15 +18,15 @@ from .core_metrics import (
 )
 from .per_blink import compute_blink_waveform_metrics
 from .._blink_metrics_shared import ALL_METHODS
-from ..energy.helpers import _safe_stats, segment_to_samples
+from ..constants import DEFAULT_BLINKER_CONFIG, BlinkerConfig, infer_modality
+from ..energy.helpers import _safe_stats
 from ..utils.aggregation import prepare_epoch_channel_data
+from ..utils.style_windows import available_styles, extract_windows
 from ...utils.epoch_utils import resolve_channels
 from ...utils.iter_utils import ensure_list
 
 logger = get_logger(__name__)
 
-_STATS = ("mean", "std", "cv")
-_SHUT_AMP_FRACTION = 0.9
 _LEGACY_MORPHOLOGY_METRICS = (
     "duration_zero",
     "duration_base",
@@ -86,25 +86,11 @@ def _legacy_metric_column_name(
     return f"{modality}__{style}__morphology__{metric}_{stat_name}__{channel_name}"
 
 
-def _infer_modality(channel_name: str, info: mne.Info) -> str:
-    """Infer modality label (ear/eeg/eog) from channel metadata."""
-
-    ch_type = info.get_channel_types(picks=[channel_name])[0]
-    ch_lower = channel_name.lower()
-    if "ear" in ch_lower:
-        return "ear"
-    if ch_type == "eog" or "eog" in ch_lower:
-        return "eog"
-    if ch_type == "eeg" or "eeg" in ch_lower:
-        return "eeg"
-    return ch_type.lower()
-
-
 def _default_morphology_channels(epochs: mne.Epochs) -> List[str]:
     """Select default morphology channels with deterministic EEG/EAR/EOG precedence."""
 
     ch_types = {
-        ch: _infer_modality(ch, epochs.info)
+        ch: infer_modality(ch, epochs.info)
         for ch in epochs.ch_names
     }
 
@@ -127,61 +113,7 @@ def _default_morphology_channels(epochs: mne.Epochs) -> List[str]:
 def _available_styles(metadata_columns: Sequence[str] | None, modality: str) -> Set[str]:
     """Return segmentation styles present in metadata for a modality."""
 
-    if metadata_columns is None:
-        return set()
-
-    styles: Set[str] = set()
-    suffix = f"__{modality}"
-    for col in metadata_columns:
-        if not col.startswith("onset__") or not col.endswith(suffix):
-            continue
-        style = col[len("onset__") : -len(suffix)]
-        if "sample" in style.lower():
-            continue
-        duration_key = f"duration__{style}__{modality}"
-        if duration_key in metadata_columns:
-            styles.add(style)
-
-    landmark_styles = {
-        "base": (
-            f"start__left_base__{modality}",
-            f"end__right_base__{modality}",
-        ),
-        "zero": (
-            f"start__left_zero__{modality}",
-            f"end__right_zero__{modality}",
-        ),
-        "tent": (
-            f"start__left_x_intercept__{modality}",
-            f"end__right_x_intercept__{modality}",
-        ),
-        "half_base": (
-            f"start__left_base_half_height__{modality}",
-            f"end__right_base_half_height__{modality}",
-        ),
-        "half_zero": (
-            f"start__left_zero_half_height__{modality}",
-            f"end__right_zero_half_height__{modality}",
-        ),
-    }
-    for style, (start_key, end_key) in landmark_styles.items():
-        if start_key in metadata_columns and end_key in metadata_columns:
-            styles.add(style)
-
-    # Generic start/end style discovery supports EAR-only metadata such as
-    # start__th_point__ear / end__th_point__ear.
-    start_prefix = "start__"
-    metadata_set = set(metadata_columns)
-    for col in metadata_columns:
-        if not col.startswith(start_prefix) or not col.endswith(suffix):
-            continue
-        style = col[len(start_prefix) : -len(suffix)]
-        if not style:
-            continue
-        if f"end__{style}__{modality}" in metadata_set:
-            styles.add(style)
-
-    return styles
+    return available_styles(metadata_columns, modality)
 
 
 def _style_windows(
@@ -193,72 +125,7 @@ def _style_windows(
 ) -> List[tuple[int, int]]:
     """Extract blink windows for a modality/style pair as sample-frame bounds."""
 
-    landmark_style_keys = {
-        "base": ("start__left_base", "end__right_base"),
-        "zero": ("start__left_zero", "end__right_zero"),
-        "tent": ("start__left_x_intercept", "end__right_x_intercept"),
-        "half_base": ("start__left_base_half_height", "end__right_base_half_height"),
-        "half_zero": ("start__left_zero_half_height", "end__right_zero_half_height"),
-    }
-
-    if style in landmark_style_keys:
-        start_prefix, end_prefix = landmark_style_keys[style]
-        starts = ensure_list(metadata_row.get(f"{start_prefix}__{modality}"))
-        ends = ensure_list(metadata_row.get(f"{end_prefix}__{modality}"))
-        windows_from_frames: List[tuple[int, int]] = []
-        for start_frame, end_frame in zip(starts, ends):
-            if start_frame is None or end_frame is None:
-                continue
-            if pd.isna(start_frame) or pd.isna(end_frame):
-                continue
-            start_idx = max(int(round(float(start_frame))), 0)
-            end_idx = min(int(round(float(end_frame))), n_times)
-            if end_idx <= start_idx:
-                continue
-            windows_from_frames.append((start_idx, end_idx))
-        if windows_from_frames:
-            return windows_from_frames
-
-    # Generic start/end frame windows for custom styles (e.g., th_point).
-    starts = ensure_list(metadata_row.get(f"start__{style}__{modality}"))
-    ends = ensure_list(metadata_row.get(f"end__{style}__{modality}"))
-    windows_from_generic_frames: List[tuple[int, int]] = []
-    for start_frame, end_frame in zip(starts, ends):
-        if start_frame is None or end_frame is None:
-            continue
-        if pd.isna(start_frame) or pd.isna(end_frame):
-            continue
-        start_idx = max(int(round(float(start_frame))), 0)
-        end_idx = min(int(round(float(end_frame))), n_times)
-        if end_idx <= start_idx:
-            continue
-        windows_from_generic_frames.append((start_idx, end_idx))
-    if windows_from_generic_frames:
-        return windows_from_generic_frames
-
-    onset_key = f"onset__{style}__{modality}"
-    duration_key = f"duration__{style}__{modality}"
-    onsets = (
-        ensure_list(metadata_row.get(onset_key))
-        if metadata_row.get(onset_key) is not None
-        else []
-    )
-    durations = (
-        ensure_list(metadata_row.get(duration_key))
-        if metadata_row.get(duration_key) is not None
-        else []
-    )
-    windows: List[tuple[int, int]] = []
-    for onset, duration in zip(onsets, durations):
-        if onset is None or duration is None:
-            continue
-        if pd.isna(onset) or pd.isna(duration):
-            continue
-        sl = segment_to_samples(float(onset), float(duration), sfreq, n_times)
-        if sl.stop <= sl.start:
-            continue
-        windows.append((int(sl.start), int(sl.stop)))
-    return windows
+    return extract_windows(metadata_row, modality, style, n_times, sfreq=sfreq)
 
 
 def _coerce_list(value: object) -> List[float]:
@@ -389,6 +256,7 @@ def _apply_morphology_properties(
     sfreq: float,
     *,
     modality: str,
+    shut_amp_fraction: float,
 ) -> pd.DataFrame:
     """Populate morphology timing metrics on a per-blink DataFrame.
 
@@ -433,7 +301,7 @@ def _apply_morphology_properties(
             signal,
             sfreq,
             modality=modality,
-            shut_amp_fraction=_SHUT_AMP_FRACTION,
+            shut_amp_fraction=shut_amp_fraction,
         )
         blink_df.loc[zero_valid, ["closing_time_zero", "reopening_time_zero", "time_shut_zero"]] = (
             zero_df[["closing_time_zero", "reopening_time_zero", "time_shut_zero"]]
@@ -449,7 +317,7 @@ def _apply_morphology_properties(
             fitted_df,
             signal,
             sfreq,
-            shut_amp_fraction=_SHUT_AMP_FRACTION,
+            shut_amp_fraction=shut_amp_fraction,
             fitted=True,
         )
         blink_df.loc[
@@ -466,7 +334,7 @@ def _apply_morphology_properties(
             base_df,
             signal,
             sfreq,
-            shut_amp_fraction=_SHUT_AMP_FRACTION,
+            shut_amp_fraction=shut_amp_fraction,
             fitted=False,
         )
         blink_df.loc[base_only, ["time_shut_base"]] = base_df[["time_shut_base"]]
@@ -491,9 +359,15 @@ def _apply_morphology_properties(
 class MorphologyBlinkFeatureExtractor:
     """Compute blink morphology features from MNE objects."""
 
-    def __init__(self, epochs: mne.Epochs | None = None, raw: mne.io.BaseRaw | None = None):
+    def __init__(
+        self,
+        epochs: mne.Epochs | None = None,
+        raw: mne.io.BaseRaw | None = None,
+        config: BlinkerConfig = DEFAULT_BLINKER_CONFIG,
+    ):
         self.epochs = epochs
         self.raw = raw
+        self.config = config
 
     def _sampling_frequency(self) -> float:
         """Return sampling frequency from available MNE object."""
@@ -597,6 +471,7 @@ class MorphologyBlinkFeatureExtractor:
 
         df = pd.DataFrame.from_records(records, index=index, columns=columns)
         df = _add_legacy_ear_channel_aliases(df)
+        df.columns = pd.Index([str(col) for col in df.columns], dtype=object)
         logger.debug("Morphology feature DataFrame shape: %s", df.shape)
         return df
 
@@ -678,7 +553,7 @@ class MorphologyBlinkFeatureExtractor:
     # ------------------------------------------------------------------
     def _build_modality_map(self, ch_names: Sequence[str]) -> Dict[str, str]:
         """Infer modality for each channel (e.g., eeg/eog/ear)."""
-        return {ch: _infer_modality(ch, self.epochs.info) for ch in ch_names}
+        return {ch: infer_modality(ch, self.epochs.info) for ch in ch_names}
 
     def _group_channels_by_modality(self, modality_map: Dict[str, str]) -> Dict[str, List[str]]:
         """Group channels by modality."""
@@ -745,7 +620,7 @@ class MorphologyBlinkFeatureExtractor:
             for style in styles:
                 metric_names = self._metrics_for_style(style)
                 for metric in metric_names:
-                    for stat in _STATS:
+                    for stat in self.config.stat_names:
                         for ch in channels:
                             column_set.add(
                                 f"{mod}__{style}__morphology__{metric}_{stat}__{ch}"
@@ -754,7 +629,7 @@ class MorphologyBlinkFeatureExtractor:
             if channels and mod in {"eeg", "eog"}:
                 primary_channel = channels[0]
                 for legacy_metric in _LEGACY_MORPHOLOGY_METRICS:
-                    for stat_name in _STATS:
+                    for stat_name in self.config.stat_names:
                         column_set.add(
                             _legacy_metric_column_name(
                                 modality=mod,
@@ -1018,6 +893,7 @@ class MorphologyBlinkFeatureExtractor:
             signal,
             sfreq,
             modality=modality,
+            shut_amp_fraction=self.config.shut_amp_fraction,
         )
         return blink_df
 

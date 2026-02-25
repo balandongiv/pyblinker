@@ -23,13 +23,16 @@ from .core_metrics import (
 )
 from .per_blink import compute_segment_kinematics
 from ..energy.helpers import _safe_stats
-from ...utils.iter_utils import ensure_list
-from ..utils.aggregation import prepare_epoch_channel_data
+from ..constants import DEFAULT_BLINKER_CONFIG, BlinkerConfig
+from ..utils.compute_skeleton import build_epoch_metadata_row, prepare_compute_context
+from ..utils.style_windows import available_styles, extract_windows
+from .helpers import (
+    _build_kinematic_blink_frame,
+    _initialize_extended_columns,
+)
 
 logger = get_logger(__name__)
 
-# Base statistic names (kinematics defaults to base per modality)
-_STATS = ("mean", "std", "cv")
 _EXTENDED_KINEMATIC_METRICS = (
     "aver_left_velocity",
     "aver_right_velocity",
@@ -42,67 +45,6 @@ _EXTENDED_KINEMATIC_METRICS = (
     "inter_blink_max_vel_base",
     "inter_blink_max_vel_zero",
 )
-
-
-def _coerce_numeric_list(value: object) -> List[float]:
-    values = ensure_list(value) if value is not None else []
-    out: List[float] = []
-    for item in values:
-        if item is None or pd.isna(item):
-            out.append(float("nan"))
-        else:
-            out.append(float(item))
-    return out
-
-
-def _pad(values: List[float], length: int) -> List[float]:
-    if len(values) >= length:
-        return values[:length]
-    return values + [float("nan")] * (length - len(values))
-
-
-def _build_kinematic_blink_frame(
-    metadata_row: Mapping[str, object],
-    *,
-    modality: str,
-    sfreq: float,
-) -> pd.DataFrame:
-    landmark_keys = {
-        "left_base": f"start__left_base__{modality}",
-        "right_base": f"end__right_base__{modality}",
-        "left_zero": f"start__left_zero__{modality}",
-        "right_zero": f"end__right_zero__{modality}",
-        "left_x_intercept": f"start__left_x_intercept__{modality}",
-        "right_x_intercept": f"end__right_x_intercept__{modality}",
-    }
-    data = {k: _coerce_numeric_list(metadata_row.get(col)) for k, col in landmark_keys.items()}
-
-    peak_key_candidates = (
-        f"onset__refine_extremum__{modality}",
-        f"blink_onset_extremum_{modality}",
-    )
-    peak_times_sec: List[float] = []
-    for peak_key in peak_key_candidates:
-        if metadata_row.get(peak_key) is not None:
-            peak_times_sec = _coerce_numeric_list(metadata_row.get(peak_key))
-            if peak_times_sec:
-                break
-
-    lengths = [len(v) for v in data.values()]
-    lengths.append(len(peak_times_sec))
-    n_blinks = max(lengths) if lengths else 0
-    if n_blinks == 0:
-        return pd.DataFrame()
-
-    for key, values in data.items():
-        data[key] = _pad(values, n_blinks)
-
-    max_blink = [float("nan")] * n_blinks
-    for i, peak_time in enumerate(_pad(peak_times_sec, n_blinks)):
-        if not pd.isna(peak_time):
-            max_blink[i] = float(round(peak_time * sfreq))
-    data["max_blink"] = max_blink
-    return pd.DataFrame(data)
 
 
 def _compute_extended_kinematic_metrics(
@@ -131,27 +73,6 @@ def _compute_extended_kinematic_metrics(
     blink_df["inter_blink_max_vel"] = blink_df.get("inter_blink_max_vel_base", float("nan"))
 
     return blink_df
-
-
-def _initialize_extended_columns(blink_df: pd.DataFrame) -> None:
-    """Ensure all intermediate extended-kinematic columns exist before filling values."""
-
-    blink_df["aver_left_velocity"] = float("nan")
-    blink_df["aver_right_velocity"] = float("nan")
-    for col in (
-        "pos_amp_vel_ratio_base",
-        "neg_amp_vel_ratio_base",
-        "peaks_pos_vel_base",
-        "pos_amp_vel_ratio_zero",
-        "neg_amp_vel_ratio_zero",
-        "peaks_pos_vel_zero",
-        "pos_amp_vel_ratio_tent",
-        "neg_amp_vel_ratio_tent",
-        "inter_blink_max_vel_base",
-        "inter_blink_max_vel_zero",
-    ):
-        if col not in blink_df.columns:
-            blink_df[col] = float("nan")
 
 
 def _populate_average_velocities(blink_df: pd.DataFrame, blink_velocity: object) -> None:
@@ -292,59 +213,28 @@ def _write_style_stats_into_record(
             column = f"{modality}__{style}__kinematic__{metric_name}_{stat_name}__{channel_name}"
             record[column] = value
 
-def _infer_modality(channel_name: str, info: mne.Info) -> str:
-    """Infer modality label (ear/eeg/eog) from channel metadata."""
-
-    ch_type = info.get_channel_types(picks=[channel_name])[0]
-    ch_lower = channel_name.lower()
-    if "ear" in ch_lower:
-        return "ear"
-    if ch_type == "eog" or "eog" in ch_lower:
-        return "eog"
-    if ch_type == "eeg" or "eeg" in ch_lower:
-        return "eeg"
-    return ch_type.lower()
 
 
-def _available_styles(metadata_columns: Sequence[str] | None, modality: str) -> Set[str]:
-    """Return frame-based segmentation styles present in metadata for a modality."""
+def _normalize_styles_for_modality(styles: Set[str], modality: str) -> Set[str]:
+    if modality in {"eeg", "eog"}:
+        normalized: Set[str] = set()
+        if "zero" in styles:
+            normalized.add("zero")
+        if "base" in styles:
+            normalized.add("base")
+        if "tent" in styles:
+            normalized.add("tent")
+        return normalized
 
-    if metadata_columns is None:
-        return set()
-
-    styles: Set[str] = set()
-
-    # Canonical styles keep existing EEG/EOG behavior unchanged.
-    landmark_styles = {
-        "base": ("start__left_base", "end__right_base"),
-        "zero": ("start__left_zero", "end__right_zero"),
-        "tent": ("start__left_x_intercept", "end__right_x_intercept"),
-    }
-    for style, (start_key, end_key) in landmark_styles.items():
-        start_col = f"{start_key}__{modality}"
-        end_col = f"{end_key}__{modality}"
-        if start_col in metadata_columns and end_col in metadata_columns:
-            styles.add(style)
-
-    # Generic style discovery supports EAR-only metadata such as
-    # start__th_point__ear / end__th_point__ear.
-    start_prefix = "start__"
-    modality_suffix = f"__{modality}"
-    metadata_set = set(metadata_columns)
-    for col in metadata_columns:
-        if not col.startswith(start_prefix) or not col.endswith(modality_suffix):
-            continue
-        style = col[len(start_prefix) : -len(modality_suffix)]
-        if not style:
-            continue
-        end_col = f"end__{style}__{modality}"
-        if end_col in metadata_set:
-            styles.add(style)
+    if modality == "ear":
+        normalized: Set[str] = set()
+        if "th_interpolation" in styles:
+            normalized.add("th_interpolation")
+        if "th_point" in styles:
+            normalized.add("th_point")
+        return normalized
 
     return styles
-
-
-
 
 def _metrics_for_style(style: str) -> List[str]:
     """Return output metric names for a segmentation style."""
@@ -355,49 +245,18 @@ def _metrics_for_style(style: str) -> List[str]:
         for stem in KINEMATIC_METRIC_STEMS
     ]
 
-def _style_windows(
-    metadata_row: Mapping[str, object],
-    modality: str,
-    style: str,
-) -> List[tuple[int, int]]:
-    """Extract frame-aligned blink windows as ``(start_sample, end_sample)`` tuples."""
-
-    landmark_style_keys = {
-        "base": ("start__left_base", "end__right_base"),
-        "zero": ("start__left_zero", "end__right_zero"),
-        "tent": ("start__left_x_intercept", "end__right_x_intercept"),
-    }
-    if style in landmark_style_keys:
-        start_prefix, end_prefix = landmark_style_keys[style]
-        start_key = f"{start_prefix}__{modality}"
-        end_key = f"{end_prefix}__{modality}"
-    else:
-        start_key = f"start__{style}__{modality}"
-        end_key = f"end__{style}__{modality}"
-
-    starts = ensure_list(metadata_row.get(start_key))
-    ends = ensure_list(metadata_row.get(end_key))
-
-    windows: List[tuple[int, int]] = []
-    for start_frame, end_frame in zip(starts, ends):
-        if start_frame is None or end_frame is None:
-            continue
-        if pd.isna(start_frame) or pd.isna(end_frame):
-            continue
-        start_idx = int(round(float(start_frame)))
-        end_idx = int(round(float(end_frame)))
-        if end_idx <= start_idx:
-            continue
-        windows.append((start_idx, end_idx))
-    return windows
-
-
 class KinematicBlinkFeatureExtractor:
     """Compute blink kinematic features from MNE objects."""
 
-    def __init__(self, epochs: mne.Epochs | None = None, raw: mne.io.BaseRaw | None = None):
+    def __init__(
+        self,
+        epochs: mne.Epochs | None = None,
+        raw: mne.io.BaseRaw | None = None,
+        config: BlinkerConfig = DEFAULT_BLINKER_CONFIG,
+    ):
         self.epochs = epochs
         self.raw = raw
+        self.config = config
 
     def _sampling_frequency(self) -> float:
         """Return sampling frequency from available MNE object."""
@@ -428,26 +287,21 @@ class KinematicBlinkFeatureExtractor:
         are ``NaN``.
         """
 
-        sfreq = self._sampling_frequency()
-        ch_names, channel_data, index, n_epochs, n_times = prepare_epoch_channel_data(
+        context = prepare_compute_context(
             epochs=self.epochs,
             picks=picks,
-            sfreq=sfreq,
+            style_getter=lambda metadata_cols, mod: _normalize_styles_for_modality(
+                available_styles(metadata_cols, mod, onset_prefix=None, duration_prefix=None),
+                mod,
+            ),
         )
-
-        modality_map: Dict[str, str] = {ch: _infer_modality(ch, self.epochs.info) for ch in ch_names}
-        modality_channels: Dict[str, List[str]] = {}
-        for ch, mod in modality_map.items():
-            modality_channels.setdefault(mod, []).append(ch)
-        metadata_cols: Sequence[str] | None = (
-            tuple(self.epochs.metadata.columns) if isinstance(self.epochs.metadata, pd.DataFrame) else None
-        )
-        styles_by_modality: Dict[str, Set[str]] = {}
-        # fallback_styles: Dict[str, bool] = {}
-        for mod in set(modality_map.values()):
-            styles = _available_styles(metadata_cols, mod)
-            # fallback_styles[mod] = not styles
-            styles_by_modality[mod] = styles
+        sfreq = context.sfreq
+        channel_data = context.channel_data
+        index = context.index
+        n_epochs = context.n_epochs
+        n_times = context.n_times
+        modality_channels = context.modality_channels
+        styles_by_modality = context.styles_by_modality
 
         column_set: Set[str] = set()
         for mod, channels in modality_channels.items():
@@ -455,7 +309,7 @@ class KinematicBlinkFeatureExtractor:
                 metrics_for_style = _metrics_for_style(style)
                 metrics_for_style.extend(_EXTENDED_KINEMATIC_METRICS)
                 for metric in metrics_for_style:
-                    for stat in _STATS:
+                    for stat in self.config.stat_names:
                         for ch in channels:
                             column_set.add(f"{mod}__{style}__kinematic__{metric}_{stat}__{ch}")
         columns = sorted(column_set)
@@ -466,11 +320,7 @@ class KinematicBlinkFeatureExtractor:
         logger.info("Computing kinematic features for %d epochs", n_epochs)
 
         for ei in range(n_epochs):
-            metadata_row = (
-                self.epochs.metadata.iloc[ei]
-                if isinstance(self.epochs.metadata, pd.DataFrame)
-                else pd.Series(dtype=float)
-            )
+            metadata_row = build_epoch_metadata_row(self.epochs, ei)
             record: Dict[str, float] = {}
             for modality, channels in modality_channels.items():
                 styles = styles_by_modality.get(modality) or {"base"}
@@ -478,7 +328,7 @@ class KinematicBlinkFeatureExtractor:
                 for style in sorted(styles):
                     metrics_for_style = _metrics_for_style(style)
                     metrics_for_style.extend(_EXTENDED_KINEMATIC_METRICS)
-                    windows = _style_windows(metadata_row, modality, style)
+                    windows = extract_windows(metadata_row, modality, style, n_times)
 
                     for ch in channels:
                         # calculate the legacy kinematics features
@@ -511,6 +361,7 @@ class KinematicBlinkFeatureExtractor:
 
         df = pd.DataFrame.from_records(records, index=index, columns=columns)
         # df = _add_legacy_ear_interpolation_aliases(df) # If there is error, this is the place to check for the column names in the test and make sure they match the expected format.
+        df.columns = pd.Index([str(col) for col in df.columns], dtype=object)
         logger.debug("Kinematic feature DataFrame shape: %s", df.shape)
         return df
 
