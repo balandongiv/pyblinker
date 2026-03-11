@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import mne
 import numpy as np
@@ -9,6 +10,12 @@ from pyblinker.utils.epoch_rejection import (
     detect_bad_epochs_peak_to_peak,
     detect_bad_epochs_peak_to_peak_mne,
 )
+
+
+def _test_file_path(filename: str) -> Path:
+    """Return absolute path to a file under test/test_files."""
+
+    return Path(__file__).resolve().parent / "test_files" / filename
 
 
 def _inject_epoch_artifacts(
@@ -88,7 +95,7 @@ def _classification_metrics(
 class TestDetectBadEpochsPeakToPeakMNE(unittest.TestCase):
     def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8(self) -> None:
         raw = mne.io.read_raw_fif(
-            "test/test_files/ear_eog_raw.fif",
+            str(_test_file_path("ear_eog_raw.fif")),
             preload=True,
             verbose=False,
         )
@@ -147,7 +154,7 @@ class TestDetectBadEpochsPeakToPeakMNE(unittest.TestCase):
 
     def test_mne_and_array_rejection_outputs_are_consistent(self) -> None:
         raw = mne.io.read_raw_fif(
-            "test/test_files/ear_eog_raw.fif",
+            str(_test_file_path("ear_eog_raw.fif")),
             preload=True,
             verbose=False,
         )

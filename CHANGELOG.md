@@ -5,6 +5,11 @@
 ### Changed
 - Strengthen epoch-rejection unit coverage with a consistency check that `detect_bad_epochs_peak_to_peak_mne` and `detect_bad_epochs_peak_to_peak` return identical good/bad epoch indices under the same corruption and CV settings.
 
+## [0.4.3] - 2026-03-11
+
+### Fixed
+- Make `test/test_epoch_rejection.py` resolve `ear_eog_raw.fif` via an absolute path derived from `Path(__file__)` so unittest discovery from IDE/test directories no longer builds invalid `test/test/test_files` paths.
+
 ## [0.4.2] - 2026-03-11
 
 ### Fixed
