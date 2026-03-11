@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-11
+
+### Added
+- Add autoreject-inspired 30-second epoch quality rejection for EEG-E8 using CV-selected peak-to-peak thresholds (`detect_bad_epochs_peak_to_peak`) and good-epoch signal selection helpers for blink preprocessing.
+- Add synthetic-corruption unit coverage that injects burst/step/drift/flatline artifacts into fixed-length EEG-E8 epochs and validates precision/recall/F1 for bad-epoch detection against ground truth.
+
+### Changed
+- Integrate optional epoch-quality rejection into blink-threshold statistics so MAD-based threshold estimation can run on only good EEG-E8 epochs when `params["epoch_rejection"]` is enabled.
+
 ## [0.3.9] - 2026-03-06
 
 ### Added

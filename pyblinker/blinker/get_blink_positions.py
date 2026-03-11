@@ -3,17 +3,37 @@ import pandas as pd
 from tqdm import tqdm
 
 from ..fitutils import mad
+from ..utils.epoch_rejection import (
+    detect_bad_epochs_peak_to_peak,
+    select_signal_samples_from_good_epochs,
+)
 from .default_setting import SCALING_FACTOR
 
 
 def _compute_basic_statistics(
     params: dict,
     blink_component: np.ndarray,
+    channel_name: str | None = None,
 ) -> tuple[float, float]:
     """Return MATLAB-equivalent thresholding statistics."""
 
-    mean_value = float(np.mean(blink_component, dtype=np.float64))
-    robust_std = float(SCALING_FACTOR * mad(blink_component))
+    stats_source = blink_component
+    epoch_reject_cfg = params.get("epoch_rejection")
+    if epoch_reject_cfg and channel_name == epoch_reject_cfg.get("channel", "EEG-E8"):
+        result = detect_bad_epochs_peak_to_peak(
+            blink_component,
+            float(params["sfreq"]),
+            epoch_duration_s=float(epoch_reject_cfg.get("epoch_duration_s", 30.0)),
+            n_splits=int(epoch_reject_cfg.get("n_splits", 5)),
+            n_candidates=int(epoch_reject_cfg.get("n_candidates", 31)),
+            random_state=int(epoch_reject_cfg.get("random_state", 7)),
+        )
+        selected = select_signal_samples_from_good_epochs(blink_component, result)
+        if selected.size:
+            stats_source = selected
+
+    mean_value = float(np.mean(stats_source, dtype=np.float64))
+    robust_std = float(SCALING_FACTOR * mad(stats_source))
     min_blink_frames = float(params["min_event_len"] * params["sfreq"])
     threshold = float(mean_value + params["std_threshold"] * robust_std)
     return min_blink_frames, threshold
@@ -84,7 +104,11 @@ def get_blink_position(
 
     assert blink_component.ndim == 1, "blink_component must be a 1D array"
 
-    min_blink_frames, threshold = _compute_basic_statistics(params, blink_component)
+    min_blink_frames, threshold = _compute_basic_statistics(
+        params,
+        blink_component,
+        channel_name=ch,
+    )
     start_blinks, end_blinks = _scan_threshold_crossings(
         blink_component,
         threshold,
