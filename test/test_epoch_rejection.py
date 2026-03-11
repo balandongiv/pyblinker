@@ -3,7 +3,10 @@ from __future__ import annotations
 import mne
 import numpy as np
 
-from pyblinker.utils.epoch_rejection import detect_bad_epochs_peak_to_peak_mne
+from pyblinker.utils.epoch_rejection import (
+    detect_bad_epochs_peak_to_peak,
+    detect_bad_epochs_peak_to_peak_mne,
+)
 
 
 def _inject_epoch_artifacts(
@@ -124,3 +127,43 @@ def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8() -> None:
     assert recall >= 0.50
     assert f1 >= 0.50
     assert len(gt["records"]) == len(gt["bad_epoch_idx"])
+
+
+def test_mne_and_array_rejection_outputs_are_consistent() -> None:
+    raw = mne.io.read_raw_fif(
+        "test/test_files/ear_eog_raw.fif", preload=True, verbose=False
+    )
+    sfreq = float(raw.info["sfreq"])
+    raw.pick(["EEG-E8"])
+
+    epochs = mne.make_fixed_length_epochs(
+        raw,
+        duration=30.0,
+        preload=True,
+        reject_by_annotation=False,
+        verbose=False,
+    )
+    clean_data = epochs.get_data(copy=True)[:, 0, :]
+    corrupted_data, _ = _inject_epoch_artifacts(clean_data, sfreq=sfreq, random_state=77)
+
+    epochs_corrupted = epochs.copy()
+    epochs_corrupted._data[:, 0, :] = corrupted_data
+
+    mne_result = detect_bad_epochs_peak_to_peak_mne(
+        epochs_corrupted,
+        picks="EEG-E8",
+        n_splits=3,
+        n_candidates=41,
+        random_state=77,
+    )
+    array_result = detect_bad_epochs_peak_to_peak(
+        corrupted_data.reshape(-1),
+        sfreq,
+        epoch_duration_s=30.0,
+        n_splits=3,
+        n_candidates=41,
+        random_state=77,
+    )
+
+    np.testing.assert_array_equal(mne_result.bad_epoch_indices, array_result.bad_epoch_indices)
+    np.testing.assert_array_equal(mne_result.good_epoch_indices, array_result.good_epoch_indices)

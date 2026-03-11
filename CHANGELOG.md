@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Strengthen epoch-rejection unit coverage with a consistency check that `detect_bad_epochs_peak_to_peak_mne` and `detect_bad_epochs_peak_to_peak` return identical good/bad epoch indices under the same corruption and CV settings.
+
 ## [0.4.1] - 2026-03-11
 
 ### Changed
