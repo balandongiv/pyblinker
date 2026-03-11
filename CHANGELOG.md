@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-11
+
+### Changed
+- Add MNE-native epoch rejection output via `detect_bad_epochs_peak_to_peak_mne`, returning `good_epochs`/`bad_epochs` subsets alongside rejected epoch indices for EEG-E8 quality screening.
+- Update epoch-rejection validation test to run directly on `mne.Epochs` objects and assert both index-based and epoch-object outputs.
+
 ## [0.4.0] - 2026-03-11
 
 ### Added

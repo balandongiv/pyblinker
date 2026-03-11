@@ -8,8 +8,12 @@ reject whole epochs (trials) and does not perform interpolation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import mne
 
 
 @dataclass(frozen=True)
@@ -22,6 +26,8 @@ class EpochRejectionResult:
     bad_epoch_indices: np.ndarray
     epoch_bounds_samples: list[tuple[int, int]]
     cv_errors: np.ndarray
+    good_epochs: mne.Epochs | None = None
+    bad_epochs: mne.Epochs | None = None
 
 
 def _split_fixed_length_epochs(
@@ -90,25 +96,15 @@ def _kfold_indices(n_epochs: int, n_splits: int, random_state: int) -> list[np.n
     return [arr.astype(int) for arr in np.array_split(perm, n_splits)]
 
 
-def detect_bad_epochs_peak_to_peak(
-    signal: np.ndarray,
-    sfreq: float,
+def _run_cv_threshold_selection(
+    epochs: np.ndarray,
     *,
-    epoch_duration_s: float = 30.0,
-    n_splits: int = 5,
-    n_candidates: int = 31,
-    random_state: int = 7,
-) -> EpochRejectionResult:
-    """Detect bad fixed-length epochs using CV-selected peak-to-peak threshold.
+    n_splits: int,
+    n_candidates: int,
+    random_state: int,
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Return best threshold, epoch scores, and per-candidate CV errors."""
 
-    The threshold is selected in an autoreject-like fashion:
-    1) compute epoch peak-to-peak scores,
-    2) evaluate threshold candidates by CV RMSE between retained-train mean and
-       validation median,
-    3) choose the threshold with minimum mean CV error.
-    """
-
-    epochs, bounds = _split_fixed_length_epochs(signal, sfreq, epoch_duration_s)
     scores = np.ptp(epochs, axis=1).astype(np.float64)
     candidates = _compute_candidate_thresholds(scores, n_candidates)
 
@@ -136,6 +132,27 @@ def detect_bad_epochs_peak_to_peak(
 
     best_idx = int(np.argmin(cv_errors))
     best_threshold = float(candidates[best_idx])
+    return best_threshold, scores, cv_errors
+
+
+def detect_bad_epochs_peak_to_peak(
+    signal: np.ndarray,
+    sfreq: float,
+    *,
+    epoch_duration_s: float = 30.0,
+    n_splits: int = 5,
+    n_candidates: int = 31,
+    random_state: int = 7,
+) -> EpochRejectionResult:
+    """Detect bad fixed-length epochs using CV-selected peak-to-peak threshold."""
+
+    epochs, bounds = _split_fixed_length_epochs(signal, sfreq, epoch_duration_s)
+    best_threshold, scores, cv_errors = _run_cv_threshold_selection(
+        epochs,
+        n_splits=n_splits,
+        n_candidates=n_candidates,
+        random_state=random_state,
+    )
 
     bad_idx = np.flatnonzero(scores > best_threshold).astype(int)
     good_idx = np.flatnonzero(scores <= best_threshold).astype(int)
@@ -150,6 +167,50 @@ def detect_bad_epochs_peak_to_peak(
     )
 
 
+def detect_bad_epochs_peak_to_peak_mne(
+    epochs: mne.Epochs,
+    *,
+    picks: str | list[str] = "EEG-E8",
+    n_splits: int = 5,
+    n_candidates: int = 31,
+    random_state: int = 7,
+) -> EpochRejectionResult:
+    """Detect bad epochs directly from an ``mne.Epochs`` object.
+
+    Returns bad/good epoch indices and the corresponding ``mne.Epochs`` subsets.
+    """
+
+    picked = epochs.copy().pick(picks)
+    data = picked.get_data(copy=True)
+    if data.shape[1] != 1:
+        raise ValueError("detect_bad_epochs_peak_to_peak_mne requires one picked channel")
+
+    one_channel_epochs = data[:, 0, :]
+    best_threshold, scores, cv_errors = _run_cv_threshold_selection(
+        one_channel_epochs,
+        n_splits=n_splits,
+        n_candidates=n_candidates,
+        random_state=random_state,
+    )
+
+    bad_idx = np.flatnonzero(scores > best_threshold).astype(int)
+    good_idx = np.flatnonzero(scores <= best_threshold).astype(int)
+
+    n_times = one_channel_epochs.shape[1]
+    bounds = [(idx * n_times, (idx + 1) * n_times) for idx in range(one_channel_epochs.shape[0])]
+
+    return EpochRejectionResult(
+        threshold=best_threshold,
+        scores=scores,
+        good_epoch_indices=good_idx,
+        bad_epoch_indices=bad_idx,
+        epoch_bounds_samples=bounds,
+        cv_errors=cv_errors,
+        good_epochs=epochs[good_idx],
+        bad_epochs=epochs[bad_idx],
+    )
+
+
 def select_signal_samples_from_good_epochs(
     signal: np.ndarray,
     rejection_result: EpochRejectionResult,
@@ -159,10 +220,11 @@ def select_signal_samples_from_good_epochs(
     if signal.ndim != 1:
         raise ValueError("signal must be 1D")
 
+    good_idx_set = set(rejection_result.good_epoch_indices.tolist())
     kept_segments = [
         signal[start:stop]
         for idx, (start, stop) in enumerate(rejection_result.epoch_bounds_samples)
-        if idx in set(rejection_result.good_epoch_indices.tolist())
+        if idx in good_idx_set
     ]
     if not kept_segments:
         return np.array([], dtype=signal.dtype)
@@ -172,5 +234,6 @@ def select_signal_samples_from_good_epochs(
 __all__ = [
     "EpochRejectionResult",
     "detect_bad_epochs_peak_to_peak",
+    "detect_bad_epochs_peak_to_peak_mne",
     "select_signal_samples_from_good_epochs",
 ]

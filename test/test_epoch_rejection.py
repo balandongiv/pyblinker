@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
 import mne
+import numpy as np
 
-from pyblinker.utils.epoch_rejection import detect_bad_epochs_peak_to_peak
+from pyblinker.utils.epoch_rejection import detect_bad_epochs_peak_to_peak_mne
 
 
 def _inject_epoch_artifacts(
@@ -49,8 +49,7 @@ def _inject_epoch_artifacts(
         elif art_type == "drift":
             data[ep_idx, start:stop] += sign * amp * np.linspace(0.0, 1.0, seg_len)
         else:  # flatline
-            fill_value = float(sign * amp)
-            data[ep_idx, start:stop] = fill_value
+            data[ep_idx, start:stop] = float(sign * amp)
 
         records.append(
             {
@@ -67,7 +66,9 @@ def _inject_epoch_artifacts(
     return data, gt
 
 
-def _classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[float, float, float]:
+def _classification_metrics(
+    y_true: np.ndarray, y_pred: np.ndarray
+) -> tuple[float, float, float]:
     tp = int(np.sum((y_true == 1) & (y_pred == 1)))
     fp = int(np.sum((y_true == 0) & (y_pred == 1)))
     fn = int(np.sum((y_true == 1) & (y_pred == 0)))
@@ -79,7 +80,9 @@ def _classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[flo
 
 
 def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8() -> None:
-    raw = mne.io.read_raw_fif("test/test_files/ear_eog_raw.fif", preload=True, verbose=False)
+    raw = mne.io.read_raw_fif(
+        "test/test_files/ear_eog_raw.fif", preload=True, verbose=False
+    )
     sfreq = float(raw.info["sfreq"])
     raw.pick(["EEG-E8"])
 
@@ -93,12 +96,12 @@ def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8() -> None:
     clean_data = epochs.get_data(copy=True)[:, 0, :]
 
     corrupted_data, gt = _inject_epoch_artifacts(clean_data, sfreq=sfreq, random_state=123)
+    epochs_corrupted = epochs.copy()
+    epochs_corrupted._data[:, 0, :] = corrupted_data
 
-    flattened = corrupted_data.reshape(-1)
-    result = detect_bad_epochs_peak_to_peak(
-        flattened,
-        sfreq,
-        epoch_duration_s=30.0,
+    result = detect_bad_epochs_peak_to_peak_mne(
+        epochs_corrupted,
+        picks="EEG-E8",
         n_splits=3,
         n_candidates=41,
         random_state=123,
@@ -113,6 +116,10 @@ def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8() -> None:
 
     precision, recall, f1 = _classification_metrics(y_true, y_pred)
 
+    assert result.bad_epochs is not None
+    assert result.good_epochs is not None
+    assert len(result.bad_epochs) == len(result.bad_epoch_indices)
+    assert len(result.good_epochs) == len(result.good_epoch_indices)
     assert precision >= 0.50
     assert recall >= 0.50
     assert f1 >= 0.50

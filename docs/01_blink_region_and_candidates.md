@@ -58,7 +58,7 @@ graph TD
 ## Related Code
 
 *   **`pyblinker/blinker/get_blink_positions.py`**: Implements the automated detection logic (MAD calculation, thresholding, merging) and optional EEG-E8 epoch-quality gating before MAD estimation.
-*   **`pyblinker/utils/epoch_rejection.py`**: Implements fixed-length epoch scoring, CV threshold selection, and bad/good epoch indexing utilities.
+*   **`pyblinker/utils/epoch_rejection.py`**: Implements fixed-length epoch scoring, CV threshold selection, and bad/good epoch indexing utilities, including an MNE-native API that returns bad-epoch and good-epoch subsets as `mne.Epochs`.
 *   **`pyblinker/blinker/fit_blink.py`**: Handles the fitting of blink shapes to the detected candidate regions.
 *   **`pyblinker/utils/annotation_utils.py`**: Utilities for converting between different annotation formats and MNE structures.
 
