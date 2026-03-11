@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unittest
+
 import mne
 import numpy as np
 
@@ -70,7 +72,8 @@ def _inject_epoch_artifacts(
 
 
 def _classification_metrics(
-    y_true: np.ndarray, y_pred: np.ndarray
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
 ) -> tuple[float, float, float]:
     tp = int(np.sum((y_true == 1) & (y_pred == 1)))
     fp = int(np.sum((y_true == 0) & (y_pred == 1)))
@@ -82,88 +85,113 @@ def _classification_metrics(
     return precision, recall, f1
 
 
-def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8() -> None:
-    raw = mne.io.read_raw_fif(
-        "test/test_files/ear_eog_raw.fif", preload=True, verbose=False
-    )
-    sfreq = float(raw.info["sfreq"])
-    raw.pick(["EEG-E8"])
+class TestDetectBadEpochsPeakToPeakMNE(unittest.TestCase):
+    def test_detect_bad_epochs_peak_to_peak_on_corrupted_eeg_e8(self) -> None:
+        raw = mne.io.read_raw_fif(
+            "test/test_files/ear_eog_raw.fif",
+            preload=True,
+            verbose=False,
+        )
+        raw.pick(["EEG-E8"])
+        sfreq = float(raw.info["sfreq"])
 
-    epochs = mne.make_fixed_length_epochs(
-        raw,
-        duration=30.0,
-        preload=True,
-        reject_by_annotation=False,
-        verbose=False,
-    )
-    clean_data = epochs.get_data(copy=True)[:, 0, :]
+        epochs = mne.make_fixed_length_epochs(
+            raw,
+            duration=30.0,
+            preload=True,
+            reject_by_annotation=False,
+            verbose=False,
+        )
+        clean_data = epochs.get_data(copy=True)[:, 0, :]
 
-    corrupted_data, gt = _inject_epoch_artifacts(clean_data, sfreq=sfreq, random_state=123)
-    epochs_corrupted = epochs.copy()
-    epochs_corrupted._data[:, 0, :] = corrupted_data
+        corrupted_data, gt = _inject_epoch_artifacts(
+            clean_data,
+            sfreq=sfreq,
+            random_state=123,
+        )
 
-    result = detect_bad_epochs_peak_to_peak_mne(
-        epochs_corrupted,
-        picks="EEG-E8",
-        n_splits=3,
-        n_candidates=41,
-        random_state=123,
-    )
+        epochs_corrupted = epochs.copy()
+        epochs_corrupted._data[:, 0, :] = corrupted_data
 
-    n_epochs = corrupted_data.shape[0]
-    y_true = np.zeros(n_epochs, dtype=int)
-    y_true[gt["bad_epoch_idx"]] = 1
+        result = detect_bad_epochs_peak_to_peak_mne(
+            epochs_corrupted,
+            picks="EEG-E8",
+            n_splits=3,
+            n_candidates=41,
+            random_state=123,
+        )
 
-    y_pred = np.zeros(n_epochs, dtype=int)
-    y_pred[result.bad_epoch_indices] = 1
+        n_epochs = corrupted_data.shape[0]
+        y_true = np.zeros(n_epochs, dtype=int)
+        y_true[gt["bad_epoch_idx"]] = 1
 
-    precision, recall, f1 = _classification_metrics(y_true, y_pred)
+        y_pred = np.zeros(n_epochs, dtype=int)
+        y_pred[result.bad_epoch_indices] = 1
 
-    assert result.bad_epochs is not None
-    assert result.good_epochs is not None
-    assert len(result.bad_epochs) == len(result.bad_epoch_indices)
-    assert len(result.good_epochs) == len(result.good_epoch_indices)
-    assert precision >= 0.50
-    assert recall >= 0.50
-    assert f1 >= 0.50
-    assert len(gt["records"]) == len(gt["bad_epoch_idx"])
+        precision, recall, f1 = _classification_metrics(y_true, y_pred)
+
+        self.assertIsNotNone(result.bad_epochs)
+        self.assertIsNotNone(result.good_epochs)
+        self.assertEqual(len(result.bad_epochs), len(result.bad_epoch_indices))
+        self.assertEqual(len(result.good_epochs), len(result.good_epoch_indices))
+        self.assertEqual(len(gt["records"]), len(gt["bad_epoch_idx"]))
+
+        drop_log = result.good_epochs.drop_log
+        self.assertEqual(len(drop_log), n_epochs)
+        for bad_idx in result.bad_epoch_indices:
+            self.assertIn("BAD_peak_to_peak", drop_log[int(bad_idx)])
+
+        self.assertGreaterEqual(precision, 0.50)
+        self.assertGreaterEqual(recall, 0.50)
+        self.assertGreaterEqual(f1, 0.50)
+
+    def test_mne_and_array_rejection_outputs_are_consistent(self) -> None:
+        raw = mne.io.read_raw_fif(
+            "test/test_files/ear_eog_raw.fif",
+            preload=True,
+            verbose=False,
+        )
+        sfreq = float(raw.info["sfreq"])
+        raw.pick(["EEG-E8"])
+
+        epochs = mne.make_fixed_length_epochs(
+            raw,
+            duration=30.0,
+            preload=True,
+            reject_by_annotation=False,
+            verbose=False,
+        )
+        clean_data = epochs.get_data(copy=True)[:, 0, :]
+        corrupted_data, _ = _inject_epoch_artifacts(clean_data, sfreq=sfreq, random_state=77)
+
+        epochs_corrupted = epochs.copy()
+        epochs_corrupted._data[:, 0, :] = corrupted_data
+
+        mne_result = detect_bad_epochs_peak_to_peak_mne(
+            epochs_corrupted,
+            picks="EEG-E8",
+            n_splits=3,
+            n_candidates=41,
+            random_state=77,
+        )
+        array_result = detect_bad_epochs_peak_to_peak(
+            corrupted_data.reshape(-1),
+            sfreq,
+            epoch_duration_s=30.0,
+            n_splits=3,
+            n_candidates=41,
+            random_state=77,
+        )
+
+        np.testing.assert_array_equal(
+            mne_result.bad_epoch_indices,
+            array_result.bad_epoch_indices,
+        )
+        np.testing.assert_array_equal(
+            mne_result.good_epoch_indices,
+            array_result.good_epoch_indices,
+        )
 
 
-def test_mne_and_array_rejection_outputs_are_consistent() -> None:
-    raw = mne.io.read_raw_fif(
-        "test/test_files/ear_eog_raw.fif", preload=True, verbose=False
-    )
-    sfreq = float(raw.info["sfreq"])
-    raw.pick(["EEG-E8"])
-
-    epochs = mne.make_fixed_length_epochs(
-        raw,
-        duration=30.0,
-        preload=True,
-        reject_by_annotation=False,
-        verbose=False,
-    )
-    clean_data = epochs.get_data(copy=True)[:, 0, :]
-    corrupted_data, _ = _inject_epoch_artifacts(clean_data, sfreq=sfreq, random_state=77)
-
-    epochs_corrupted = epochs.copy()
-    epochs_corrupted._data[:, 0, :] = corrupted_data
-
-    mne_result = detect_bad_epochs_peak_to_peak_mne(
-        epochs_corrupted,
-        picks="EEG-E8",
-        n_splits=3,
-        n_candidates=41,
-        random_state=77,
-    )
-    array_result = detect_bad_epochs_peak_to_peak(
-        corrupted_data.reshape(-1),
-        sfreq,
-        epoch_duration_s=30.0,
-        n_splits=3,
-        n_candidates=41,
-        random_state=77,
-    )
-
-    np.testing.assert_array_equal(mne_result.bad_epoch_indices, array_result.bad_epoch_indices)
-    np.testing.assert_array_equal(mne_result.good_epoch_indices, array_result.good_epoch_indices)
+if __name__ == "__main__":
+    unittest.main()

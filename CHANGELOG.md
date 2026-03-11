@@ -5,6 +5,12 @@
 ### Changed
 - Strengthen epoch-rejection unit coverage with a consistency check that `detect_bad_epochs_peak_to_peak_mne` and `detect_bad_epochs_peak_to_peak` return identical good/bad epoch indices under the same corruption and CV settings.
 
+## [0.4.2] - 2026-03-11
+
+### Fixed
+- Update `detect_bad_epochs_peak_to_peak_mne` so returned `good_epochs` preserves MNE `drop_log` entries for all rejected epochs with reason `"BAD_peak_to_peak"`, while still returning rejected-epoch subsets and indices.
+- Convert epoch-rejection validation to `unittest` style and assert `drop_log` reason propagation for each detected bad epoch.
+
 ## [0.4.1] - 2026-03-11
 
 ### Changed

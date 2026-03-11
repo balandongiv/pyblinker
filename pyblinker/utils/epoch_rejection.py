@@ -199,6 +199,10 @@ def detect_bad_epochs_peak_to_peak_mne(
     n_times = one_channel_epochs.shape[1]
     bounds = [(idx * n_times, (idx + 1) * n_times) for idx in range(one_channel_epochs.shape[0])]
 
+    cleaned_epochs = epochs.copy()
+    if bad_idx.size:
+        cleaned_epochs.drop(bad_idx.tolist(), reason="BAD_peak_to_peak")
+
     return EpochRejectionResult(
         threshold=best_threshold,
         scores=scores,
@@ -206,7 +210,7 @@ def detect_bad_epochs_peak_to_peak_mne(
         bad_epoch_indices=bad_idx,
         epoch_bounds_samples=bounds,
         cv_errors=cv_errors,
-        good_epochs=epochs[good_idx],
+        good_epochs=cleaned_epochs,
         bad_epochs=epochs[bad_idx],
     )
 
