@@ -58,7 +58,7 @@ def _apply_minimum_separation(
     end_blinks: np.ndarray,
     *,
     sfreq: float,
-    min_event_len: float,
+    min_event_sep: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Remove adjacent blinks that are closer than MATLAB's minEventSep."""
 
@@ -67,7 +67,7 @@ def _apply_minimum_separation(
 
     position_mask = np.ones(end_blinks.size, dtype=bool)
     delta = (start_blinks[1:] - end_blinks[:-1]) / sfreq
-    too_close = np.flatnonzero(delta <= min_event_len)
+    too_close = np.flatnonzero(delta <= min_event_sep)
     position_mask[too_close] = False
     position_mask[too_close + 1] = False
     return start_blinks[position_mask], end_blinks[position_mask]
@@ -96,11 +96,12 @@ def get_blink_position(
     if start_blinks.size == 0:
         return pd.DataFrame({"start_blink": [], "end_blink": []})
 
+    min_event_sep = float(params.get("min_event_sep", params["min_event_len"]))
     start_blinks, end_blinks = _apply_minimum_separation(
         start_blinks,
         end_blinks,
         sfreq=params["sfreq"],
-        min_event_len=params["min_event_len"],
+        min_event_sep=min_event_sep,
     )
 
     return pd.DataFrame(

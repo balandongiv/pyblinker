@@ -2,8 +2,9 @@
 
 # 1) Import required libraries
 import mne
-from pyblinker.blinker.pyblinker import BlinkDetector
+import numpy as np
 import os
+from pyblinker.blinker import BlinkDetector
 # 2) Specify the EEG file path
 # Replace this path with the location of your .fif EEG recording file
 
@@ -36,15 +37,35 @@ if to_drop:
 
 # 8) Create and configure the blink detector
 print("Detecting blinks...")
+# Any value from DEFAULT_PARAMS can be overridden here.
+blinker_params = {
+    "std_threshold": 1.50,
+    "min_event_len": 0.05,
+    "min_event_sep": 0.05,
+    "base_fraction": 0.1,
+    "correlation_threshold_top": 0.980,
+    "correlation_threshold_bottom": 0.90,
+    "correlation_threshold_middle": 0.95,
+    "shut_amp_fraction": 0.9,
+    "blink_amp_range_1": 3,
+    "blink_amp_range_2": 50,
+    "good_ratio_threshold": 0.7,
+    "min_good_blinks": 10,
+    "keep_signals": 0,
+    "correlation_threshold": 0.98,
+    "p_avr_threshold": 3,
+    "z_thresholds": np.array([[0.9, 0.98], [2.0, 5.0]]),
+}
 detector = BlinkDetector(
     raw,
     visualize=False,
     annot_label=None,
-    filter_low=0.5,
-    filter_high=30.0,
-    resample_rate=100,
+    filter_low=1.0,
+    filter_high=20.0,
+    resample_rate=30,
     n_jobs=2,
     use_multiprocessing=True,
+    blink_params=blinker_params,
 )
 
 # 9) Run blink detection

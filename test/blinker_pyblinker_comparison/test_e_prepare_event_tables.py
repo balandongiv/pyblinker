@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from blinker_pyblinker_validation.blink_compare import prepare_event_tables
+from pyblinker.utils.evaluation.event_tables import prepare_event_tables
 
 
 def test_prepare_event_tables_converts_py_zero_based_boundaries():

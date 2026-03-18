@@ -92,7 +92,8 @@ def _get_blink_position_epoching(
         One-dimensional array containing the blink-related signal.
     params : dict
         Parameter dictionary with keys ``sfreq``, ``min_event_len`` and
-        ``std_threshold``.
+        ``std_threshold``. ``min_event_sep`` is optional and falls back to
+        ``min_event_len`` for backwards compatibility.
     ch : str | None
         Channel name used only for log messages.
     progress_bar : bool
@@ -140,7 +141,8 @@ def _get_blink_position_epoching(
 
     pos_mask = np.ones(arr_end.size, dtype=bool)
     durations = (arr_start[1:] - arr_end[:-1]) / params["sfreq"]
-    close = np.where(durations <= params["min_event_len"])[0]
+    min_event_sep = float(params.get("min_event_sep", params["min_event_len"]))
+    close = np.where(durations <= min_event_sep)[0]
     pos_mask[close] = False
     pos_mask[close + 1] = False
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Add `pyblinker.utils.evaluation.event_tables.prepare_event_tables(...)` so PyBlinker comparison tests can prepare MATLAB-vs-PyBlinker event tables without importing from the external validation harness.
+
+### Changed
+- Align `tutorial/01a_basic_usage.py` with the explicit legacy-default blink-parameter profile used in validation experiments, including `min_good_blinks = 10`.
+
 ## [0.3.9] - 2026-03-06
 
 ### Added

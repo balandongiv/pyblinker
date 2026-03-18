@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from pyblinker.logging import get_logger
 
 from . import default_setting
@@ -17,6 +19,23 @@ logger = get_logger(__name__)
 
 
 class BlinkDetector:
+    @staticmethod
+    def _build_detector_params(blink_params, blink_param_overrides):
+        """Merge constructor blink-parameter overrides with canonical defaults."""
+
+        if blink_params is not None and not isinstance(blink_params, Mapping):
+            raise TypeError("blink_params must be a mapping of parameter overrides.")
+
+        merged_overrides = {}
+        if blink_params is not None:
+            merged_overrides.update(blink_params)
+        merged_overrides.update(blink_param_overrides)
+
+        try:
+            return default_setting.build_blink_params(merged_overrides)
+        except KeyError as exc:
+            raise TypeError(str(exc)) from exc
+
     def __init__(
         self,
         raw_data,
@@ -30,6 +49,8 @@ class BlinkDetector:
         use_multiprocessing=False,
         pick_types_options=None,
         pipeline="legacy",
+        blink_params=None,
+        **blink_param_overrides,
     ):
         """
         Initialize the BlinkDetector.
@@ -46,13 +67,21 @@ class BlinkDetector:
             use_multiprocessing (bool): Whether to use multiprocessing.
             pick_types_options (dict): Dictionary of channel type options to pass
                                        to raw_data.pick_types, e.g. {'eeg': True, 'eog': True}.
+            blink_params (dict): Optional dictionary of overrides for values in
+                                 ``pyblinker.blinker.default_setting.DEFAULT_PARAMS``.
+            **blink_param_overrides: Optional direct keyword overrides for values in
+                                     ``DEFAULT_PARAMS``. These take precedence over
+                                     ``blink_params`` when both are provided. For
+                                     example, ``std_threshold=2.0`` or
+                                     ``z_thresholds=np.array(...)``.
         """
         self.filter_bad = filter_bad
         self.raw_data = raw_data
         self.viz_data = visualize
         self.annot_label = annot_label
         self.sfreq = self.raw_data.info["sfreq"]
-        self.params = default_setting.DEFAULT_PARAMS.copy()
+        self.params = self._build_detector_params(blink_params, blink_param_overrides)
+        self.params["sfreq"] = float(self.sfreq)
         self.channel_list = self.raw_data.ch_names
         self.all_data_info = []  # To store processed blink data per channel
         self.filter_low = filter_low

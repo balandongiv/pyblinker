@@ -6,7 +6,7 @@ It retains the historic logic for reference and compatibility."""
 from .fit_blink import FitBlinks
 from ..blink_features.waveform_features.extract_blink_properties import BlinkProperties
 from .pyblinker import BlinkDetector
-from .default_setting import DEFAULT_PARAMS, SCALING_FACTOR
+from .default_setting import DEFAULT_PARAMS, SCALING_FACTOR, build_blink_params
 
 __all__ = [
     "FitBlinks",
@@ -14,4 +14,5 @@ __all__ = [
     "BlinkDetector",
     "DEFAULT_PARAMS",
     "SCALING_FACTOR",
+    "build_blink_params",
 ]

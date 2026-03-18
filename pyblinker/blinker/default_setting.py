@@ -1,4 +1,6 @@
 import numpy as np
+from collections.abc import Mapping
+from copy import deepcopy
 
 """
 Default parameters for blink detection and analysis.
@@ -101,3 +103,80 @@ DEFAULT_PARAMS = {
     "z_thresholds": np.array([[0.9, 0.98], [2.0, 5.0]]),
     "sfreq": 100,
 }
+
+
+def _clone_param_value(value):
+    """Return a safe copy of a default parameter value."""
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    if isinstance(value, (dict, list, tuple, set)):
+        return deepcopy(value)
+    return value
+
+
+def _sync_dependent_params(
+    params: dict[str, object], overrides: Mapping[str, object] | None
+) -> dict[str, object]:
+    """Keep coupled legacy parameter aliases consistent after merging overrides."""
+
+    if overrides is None:
+        return params
+
+    explicit_keys = set(overrides)
+
+    if "z_thresholds" in explicit_keys:
+        z_thresholds = np.asarray(params["z_thresholds"], dtype=float).copy()
+        if (
+            z_thresholds.ndim >= 2
+            and z_thresholds.shape[0] >= 1
+            and z_thresholds.shape[1] >= 2
+        ):
+            params["z_thresholds"] = z_thresholds
+            params["correlation_threshold_bottom"] = float(z_thresholds[0, 0])
+            params["correlation_threshold_top"] = float(z_thresholds[0, 1])
+            if "correlation_threshold" not in explicit_keys:
+                params["correlation_threshold"] = float(z_thresholds[0, 1])
+        return params
+
+    threshold_keys = {
+        "correlation_threshold_bottom",
+        "correlation_threshold_top",
+        "correlation_threshold",
+    }
+    if not (explicit_keys & threshold_keys):
+        return params
+
+    z_thresholds = np.asarray(params["z_thresholds"], dtype=float).copy()
+    if z_thresholds.ndim < 2 or z_thresholds.shape[0] < 1 or z_thresholds.shape[1] < 2:
+        return params
+
+    z_thresholds[0, 0] = float(params["correlation_threshold_bottom"])
+    top_threshold = float(
+        params["correlation_threshold_top"]
+        if "correlation_threshold_top" in explicit_keys
+        else params["correlation_threshold"]
+    )
+    z_thresholds[0, 1] = top_threshold
+    params["z_thresholds"] = z_thresholds
+    params["correlation_threshold_top"] = top_threshold
+    params["correlation_threshold"] = top_threshold
+    return params
+
+
+def build_blink_params(
+    overrides: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Return a copy of ``DEFAULT_PARAMS`` merged with optional overrides."""
+    params = {
+        key: _clone_param_value(value) for key, value in DEFAULT_PARAMS.items()
+    }
+    if overrides is None:
+        return params
+
+    unknown = sorted(set(overrides) - set(DEFAULT_PARAMS))
+    if unknown:
+        raise KeyError(f"Unknown blink parameter(s): {', '.join(unknown)}")
+
+    for key, value in overrides.items():
+        params[key] = _clone_param_value(value)
+    return _sync_dependent_params(params, overrides)
