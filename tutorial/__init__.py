@@ -1,1 +1,1 @@
-"""Tutorial and reproducibility entry points for the validation repository."""
+"""Tutorial entry points for the pyblinker package repository."""

@@ -2,6 +2,8 @@
 
 import pandas as pd
 
+__version__ = "0.4.1"
+
 try:
     pd.set_option("future.infer_string", False)
 except Exception:
@@ -13,6 +15,7 @@ from .blinker.pyblinker import BlinkDetector
 from .segment_blink_properties import compute_segment_blink_properties
 
 __all__ = [
+    "__version__",
     "BlinkProperties",
     "FitBlinks",
     "BlinkDetector",

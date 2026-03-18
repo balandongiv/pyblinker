@@ -134,5 +134,5 @@ The blink property extraction now mirrors MATLAB's handling of inter-blink timin
 *   **`test/blinker_migration/test_step3_select_channels.py`**: Validates that given a multi-channel recording, the Python code picks the same "best" channel as MATLAB.
 
 ### Tutorials
-*   **`tutorial/02b_extract_blink_from_matlab_blinker.py`**: A complete script showing how to run the ported "legacy" pipeline.
+*   **`tutorial/02b_extract_blink_from_matlab_blinker.py`**: A complete script showing how to run the ported "legacy" pipeline using the MATLAB helper from the sibling validation workspace rather than a vendored `src/` tree.
 *   **`tutorial/blinker/migration/`**: Contains scripts that visualize the comparison between MATLAB and Python outputs step-by-step.

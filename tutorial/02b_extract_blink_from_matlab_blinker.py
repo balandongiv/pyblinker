@@ -7,7 +7,8 @@ Overview
 What this script does
 1) Creates or locates the MNE sample dataset converted to EDF via
    `test.data_setup.ensure_mne_sample_edf`.
-2) Invokes MATLAB EEGLAB + Blinker (via `src.matlab_runner.execute_blinker`) to export
+2) Invokes MATLAB EEGLAB + Blinker (via the validation harness helper
+   `src.matlab_runner.execute_blinker`) to export
    blink fits for the EDF recording.
 3) Reads the exported table (`processed['blinkFits']`), extracts left/right zero-crossing
    indices, and maps them to onset/duration in seconds.
@@ -20,6 +21,9 @@ Prerequisites
   - Set environment variable `EEGLAB_ROOT` to the EEGLAB directory, or
   - Update `DEFAULT_EEGLAB_ROOT` below to a valid path on your machine.
 - The Blinker plugin should be installed under EEGLAB (default plugin name here: "Blinker1.2.0").
+- The validation helper checkout must be available either:
+  - As a parent workspace containing `src/matlab_runner/execute_blinker.py`, or
+  - Via `BLINKER_VALIDATION_ROOT=<path-to-blinker_pyblinker_validation>`.
 
 Notes and assumptions
 - The Blinker export is expected to include a table-like entry at `processed['blinkFits']` with
@@ -43,20 +47,52 @@ Troubleshooting
 - If you see a KeyError about missing columns, check the actual columns in `processed['blinkFits']`
   and adjust `left_candidates`/`right_candidates` as needed.
 - If MATLAB/EEGLAB cannot be found, verify `EEGLAB_ROOT` and your MATLAB installation.
+- If the validation helper cannot be imported, verify `BLINKER_VALIDATION_ROOT`
+  or run the script from the nested validation workspace layout.
 """
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any, Mapping, cast
 
 from test.data_setup import ensure_mne_sample_edf
-from src.matlab_runner import execute_blinker
 import mne
 
 from pyblinker.utils.evaluation.dataframe_ops import pick_first_match
 
 DEFAULT_EEGLAB_ROOT = Path(r"D:\code development\matlab_plugin\eeglab2025.1.0")
+
+
+def _resolve_validation_root() -> Path:
+    env_root = os.environ.get("BLINKER_VALIDATION_ROOT")
+    if env_root:
+        candidate = Path(env_root).expanduser().resolve()
+        helper_path = candidate / "src" / "matlab_runner" / "execute_blinker.py"
+        if helper_path.exists():
+            return candidate
+        raise FileNotFoundError(
+            "BLINKER_VALIDATION_ROOT does not contain src/matlab_runner/execute_blinker.py: "
+            f"{candidate}"
+        )
+
+    for candidate in Path(__file__).resolve().parents:
+        helper_path = candidate / "src" / "matlab_runner" / "execute_blinker.py"
+        if helper_path.exists():
+            return candidate
+
+    raise ModuleNotFoundError(
+        "Could not locate the validation helper checkout. "
+        "Set BLINKER_VALIDATION_ROOT to the blinker_pyblinker_validation repository root."
+    )
+
+
+VALIDATION_ROOT = _resolve_validation_root()
+if str(VALIDATION_ROOT) not in sys.path:
+    sys.path.insert(0, str(VALIDATION_ROOT))
+
+from src.matlab_runner import execute_blinker
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
