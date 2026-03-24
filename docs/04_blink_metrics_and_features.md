@@ -37,6 +37,7 @@ Unless noted otherwise:
 *   **`closed_duration_seconds`**: Duration where eye was functionally closed.
 *   **`auc_below_threshold`**: Area under the closure curve.
 *   **`refined_closing_slope`** / **`opening_slope`**: Precise slopes using interpolated crossings.
+*   **Interval-based `perclos`**: Epoch-level fraction of time the eyes remain closed using refined EAR threshold windows. The dedicated implementation lives in `pyblinker/blink_features/perclos` and drives the pipeline-facing `perclos` / `fatigue_label` outputs.
 
 #### B. Open-Eye State (Baseline)
 *   **`perclos`**: Percentage of time eyes are >= 80% closed (drowsiness standard).
