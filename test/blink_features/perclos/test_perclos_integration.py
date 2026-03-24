@@ -46,7 +46,6 @@ def test_compute_perclos_features_from_refined_ear_epochs() -> None:
         segmentation_type=segmentation_config,
     )
     df = compute_perclos_features(epochs)
-    df.to_csv('mm.csv', index=False)
 
     assert len(df) == len(epochs)
     assert df["perclos"].between(0.0, 1.0).all()
