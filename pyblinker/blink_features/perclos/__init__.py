@@ -6,7 +6,6 @@ from .perclos import (
     clip_intervals_to_epoch,
     compute_epoch_perclos,
     compute_perclos_features,
-    extract_closed_eye_intervals,
     sum_closed_eye_duration,
 )
 # from .thresholds import resolve_subject_specific_ear_threshold
@@ -18,6 +17,5 @@ __all__ = [
     "clip_intervals_to_epoch",
     "compute_epoch_perclos",
     "compute_perclos_features",
-    "extract_closed_eye_intervals",
     "sum_closed_eye_duration",
 ]

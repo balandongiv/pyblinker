@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Sequence
 from typing import List, Tuple
 
 import mne
@@ -17,9 +17,9 @@ from .labeling import assign_fatigue_labels
 
 logger = get_logger(__name__)
 
-_EAR_INTERVAL_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("start__th_interpolation__ear", "end__th_interpolation__ear"),
-    ("start__th_point__ear", "end__th_point__ear"),
+_EAR_INTERVAL_COLUMNS: tuple[str, str] = (
+    "start__th_interpolation__ear",
+    "end__th_interpolation__ear",
 )
 
 
@@ -45,13 +45,47 @@ def _has_ear_channel(epochs: mne.Epochs) -> bool:
     return any(infer_modality(ch, epochs.info) == "ear" for ch in epochs.ch_names)
 
 
+def _ear_channels(
+    epochs: mne.Epochs, requested_picks: Sequence[str] | None = None
+) -> list[str]:
+    """Return resolved EAR channel names, preferring explicitly requested picks."""
+
+    requested = {
+        str(pick).strip().lower() for pick in (requested_picks or ()) if str(pick).strip()
+    }
+    available = [
+        channel_name
+        for channel_name in epochs.ch_names
+        if infer_modality(channel_name, epochs.info) == "ear"
+    ]
+    if not requested:
+        return available
+    requested_ear = [
+        channel_name for channel_name in available if channel_name.lower() in requested
+    ]
+    return requested_ear or available
+
+
+def _resolve_ear_output_channel(
+    epochs: mne.Epochs, requested_picks: Sequence[str] | None = None
+) -> str:
+    """Resolve the EAR channel label used in style-aware PERCLOS output names."""
+
+    channels = _ear_channels(epochs, requested_picks=requested_picks)
+    if not channels:
+        raise ValueError("epochs must include an EAR channel for PERCLOS computation")
+    if len(channels) > 1:
+        logger.warning(
+            "Multiple EAR channels available for PERCLOS output naming; using the first one: %s",
+            channels[0],
+        )
+    return channels[0].upper()
+
+
 def _epoch_index(epochs: mne.Epochs) -> pd.Index:
     if isinstance(epochs.metadata, pd.DataFrame):
         return epochs.metadata.index
     return pd.RangeIndex(len(epochs))
-
-
-
 
 
 def _select_interval_columns(
@@ -59,37 +93,23 @@ def _select_interval_columns(
     *,
     allow_empty_blinks: bool,
 ) -> tuple[str, str] | None:
-    for start_col, end_col in _EAR_INTERVAL_COLUMNS:
-        if start_col in metadata.columns and end_col in metadata.columns:
-            return start_col, end_col
+    start_col, end_col = _EAR_INTERVAL_COLUMNS
+    if start_col in metadata.columns and end_col in metadata.columns:
+        return start_col, end_col
 
     if allow_empty_blinks:
         return None
 
-    expected = ", ".join(
-        f"{start_col}/{end_col}" for start_col, end_col in _EAR_INTERVAL_COLUMNS
-    )
     raise ValueError(
-        "Epochs.metadata missing EAR closed-eye interval columns. "
-        f"Expected one of: {expected}"
+        "epochs.metadata missing EAR threshold-interpolation interval columns. "
+        f"Expected: {start_col}/{end_col}"
     )
 
 
-def extract_closed_eye_intervals(
-    metadata_row: Mapping[str, object],
-    *,
-    interval_columns: tuple[str, str] | None = None,
+def _extract_intervals_from_row(
+    metadata_row: pd.Series, *, interval_columns: tuple[str, str] | None
 ) -> List[Tuple[float, float]]:
-    """Return closed-eye intervals stored in one epoch metadata row."""
-
-    if not isinstance(metadata_row, (Mapping, pd.Series)):
-        raise TypeError("metadata_row must be a mapping")
-
-    if interval_columns is None:
-        for candidate in _EAR_INTERVAL_COLUMNS:
-            if candidate[0] in metadata_row and candidate[1] in metadata_row:
-                interval_columns = candidate
-                break
+    """Return closed-eye intervals from one epoch metadata row."""
 
     if interval_columns is None:
         return []
@@ -103,7 +123,6 @@ def extract_closed_eye_intervals(
         if end <= start:
             continue
         intervals.append((start, end))
-
     return intervals
 
 
@@ -173,6 +192,7 @@ def compute_perclos_features(
     epochs: mne.Epochs,
     *,
     perclos_cutoff: float = 0.80,
+    requested_picks: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Compute interval-based PERCLOS and fatigue labels for refined epochs."""
 
@@ -188,6 +208,11 @@ def compute_perclos_features(
     metadata = epochs.metadata.reset_index(drop=True)
     sfreq = float(epochs.info["sfreq"])
     epoch_length = float(epochs.tmax - epochs.tmin)
+    output_channel = _resolve_ear_output_channel(
+        epochs, requested_picks=requested_picks
+    )
+    perclos_column = f"ear__th_interpolation__perclos__{output_channel}"
+    fatigue_column = f"ear__th_interpolation__fatigue_label__{output_channel}"
     allow_empty_blinks = (
         "n_blinks" in metadata.columns and float(metadata["n_blinks"].fillna(0).sum()) == 0.0
     )
@@ -201,9 +226,8 @@ def compute_perclos_features(
         epoch_start = float(epochs.events[epoch_idx, 0] / sfreq)
         epoch_end = epoch_start + epoch_length
 
-        intervals_samples = extract_closed_eye_intervals(
-            row,
-            interval_columns=interval_columns,
+        intervals_samples = _extract_intervals_from_row(
+            row, interval_columns=interval_columns
         )
         intervals_seconds = [
             (start_sample / sfreq, end_sample / sfreq)
@@ -217,13 +241,13 @@ def compute_perclos_features(
             {
                 "epoch_start": epoch_start,
                 "epoch_end": epoch_end,
-                "perclos": perclos,
+                perclos_column: perclos,
             }
         )
 
     df = pd.DataFrame.from_records(records, index=_epoch_index(epochs))
-    df["fatigue_label"] = assign_fatigue_labels(
-        df["perclos"].tolist(),
+    df[fatigue_column] = assign_fatigue_labels(
+        df[perclos_column].tolist(),
         perclos_cutoff=perclos_cutoff,
     )
     logger.debug("Computed PERCLOS DataFrame shape: %s", df.shape)
@@ -234,6 +258,5 @@ __all__ = [
     "clip_intervals_to_epoch",
     "compute_epoch_perclos",
     "compute_perclos_features",
-    "extract_closed_eye_intervals",
     "sum_closed_eye_duration",
 ]
