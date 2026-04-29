@@ -14,6 +14,13 @@ from pyblinker.fitutils.forking import mad
 from pyblinker.segmentation.geometry import get_max_blink
 
 
+def _amplitude_gate_tolerance(
+    amplitude_tolerance: float,
+) -> float:
+    """Return a small absolute tolerance for MATLAB-vs-Python drift at the gate."""
+    return max(0.0, float(amplitude_tolerance))
+
+
 def calculate_within_range(
     all_values: np.ndarray, best_median: float, best_robust_std: float
 ) -> int:
@@ -154,6 +161,8 @@ def get_good_blink_mask(
     specified_median: float,
     specified_std: float,
     z_thresholds: np.ndarray,
+    *,
+    amplitude_tolerance: float = 0.0,
 ) -> Tuple[np.ndarray, pd.DataFrame]:
     """Return mask of good blinks and subset DataFrame based on thresholds."""
     # Calculate an amplitude criterion (frames in blink to those out)
@@ -166,6 +175,7 @@ def get_good_blink_mask(
 
     correlation_thresholds = z_thresholds[0]
     z_score_thresholds = z_thresholds[1]
+    amp_tol = _amplitude_gate_tolerance(amplitude_tolerance)
 
     lower_bounds = np.maximum(0, specified_median - z_score_thresholds * specified_std)
     upper_bounds = specified_median + z_score_thresholds * specified_std
@@ -180,8 +190,8 @@ def get_good_blink_mask(
     masks = (
         (left_r2 >= correlation_thresholds)
         & (right_r2 >= correlation_thresholds)
-        & (max_value >= lower_bounds)
-        & (max_value <= upper_bounds)
+        & (max_value >= (lower_bounds - amp_tol))
+        & (max_value <= (upper_bounds + amp_tol))
     )
     good_blink_mask = np.any(masks, axis=1)
     selected_rows = blink_fits[good_blink_mask]

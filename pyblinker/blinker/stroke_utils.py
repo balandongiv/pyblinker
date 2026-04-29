@@ -57,6 +57,7 @@ def get_up_down_stroke(max_blink, left_zero, right_zero):
 
 def max_pos_vel_frame(blink_velocity, max_blink, left_zero, right_zero):
     """Locate frames with maximum positive and negative blink velocities."""
+    original_right_zero = int(right_zero)
     resolved_window = _coerce_velocity_window(
         blink_velocity,
         max_blink=max_blink,
@@ -87,6 +88,12 @@ def max_pos_vel_frame(blink_velocity, max_blink, left_zero, right_zero):
     # Maximum positive velocity in the up_stroke region
     max_pos_vel_idx = np.argmax(blink_velocity[up_stroke])
     max_pos_vel_frame = up_stroke[max_pos_vel_idx]
+
+    # MATLAB leaves the trailing velocity landmark undefined when the
+    # zero-crossing hits the final raw sample because ``diff(signal)`` has
+    # no derivative sample beyond that point.
+    if original_right_zero >= np.asarray(blink_velocity).size:
+        return max_pos_vel_frame, np.nan
 
     # Maximum negative velocity in the down_stroke region, if it exists
     if down_stroke.size > 0:

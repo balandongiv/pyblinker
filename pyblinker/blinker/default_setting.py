@@ -95,6 +95,8 @@ DEFAULT_PARAMS = {
     "min_good_blinks": 10,
     "keep_signals": 0,
     "correlation_threshold": 0.98,
+    "amplitude_gate_tolerance": 0.0,
+    "amplitude_gate_end_window_seconds": 0.0,
     "p_avr_threshold": 3,  # from original paper: The pAVR criterion captures
     # the difference between the sharp rising edge of saccades and the more
     # curved rise of normal blinks. We have found empirically that blink
