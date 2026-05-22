@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .dict_utils import contains_key
 from .iter_utils import ensure_list

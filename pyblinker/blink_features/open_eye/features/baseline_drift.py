@@ -7,7 +7,7 @@ closures observed in drowsiness.
 
 from typing import List, Dict
 import numpy as np
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

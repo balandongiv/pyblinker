@@ -6,7 +6,7 @@ from typing import Callable, Dict, Iterable, Optional, Sequence
 import mne
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .blink_features.blink_events.classification import (
     aggregate_classification_features,

@@ -5,7 +5,7 @@ from typing import Dict, List, Mapping, Sequence, Set, Tuple
 import mne
 import numpy as np
 import pandas as pd
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .column_headers import (
     DURATION_STYLE_MAP,

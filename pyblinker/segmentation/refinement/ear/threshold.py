@@ -14,7 +14,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

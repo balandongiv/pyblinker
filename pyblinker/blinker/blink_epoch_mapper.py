@@ -47,7 +47,7 @@ from tqdm import tqdm
 
 from .default_setting import SCALING_FACTOR
 from ..fitutils import mad
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 # from ..ear.blink_epoch_mapper import _get_blink_position_epoching_ear
 
 logger = get_logger(__name__)

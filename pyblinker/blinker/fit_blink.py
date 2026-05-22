@@ -1,4 +1,4 @@
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 import numpy as np
 import pandas as pd

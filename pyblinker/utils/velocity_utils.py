@@ -8,7 +8,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from numpy.typing import ArrayLike
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

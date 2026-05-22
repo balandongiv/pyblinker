@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

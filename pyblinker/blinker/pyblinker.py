@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from . import default_setting
 from .legacy_eeglab_filter import legacy_blinker_bandpass

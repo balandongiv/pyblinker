@@ -8,7 +8,7 @@ import mne
 import pandas as pd
 from tqdm import tqdm
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .prep import _prepare_epochs_and_modalities, _prepare_segmentation_config
 from .refine_epoch import _refine_epoch_modalities

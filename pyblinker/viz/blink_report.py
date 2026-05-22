@@ -4,7 +4,7 @@ import numpy as np
 import mne
 from mne.report import Report
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 
 def generate_blink_report(

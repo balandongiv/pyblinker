@@ -1,5 +1,5 @@
 from typing import Dict, List, Sequence, Tuple
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 import mne
 import numpy as np

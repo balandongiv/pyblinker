@@ -1,7 +1,7 @@
 """Utility functions replicating select MATLAB helpers in Python."""
 
 from __future__ import annotations
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 
 import numpy as np

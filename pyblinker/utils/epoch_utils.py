@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 from .channel_utils import normalize_picks, require_channels
 
 logger = get_logger(__name__)

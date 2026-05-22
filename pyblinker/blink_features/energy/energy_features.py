@@ -7,7 +7,7 @@ from typing import Dict, List, Mapping, Sequence, Set
 import mne
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .._epoch_context import (
     available_styles_by_modality,

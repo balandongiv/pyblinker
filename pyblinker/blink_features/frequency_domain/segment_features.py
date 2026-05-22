@@ -1,7 +1,7 @@
 """Frequency-domain features for arbitrary segments."""
 
 from __future__ import annotations
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from typing import Any, Dict, List
 

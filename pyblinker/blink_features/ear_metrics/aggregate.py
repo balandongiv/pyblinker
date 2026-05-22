@@ -3,7 +3,7 @@
 from typing import Iterable, Dict, Any, List
 import pandas as pd
 import numpy as np
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .features import ear_before_blink_avg_epoch, ear_extrema_epoch
 

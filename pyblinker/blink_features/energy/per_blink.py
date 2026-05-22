@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .common import compute_energy_metrics
 

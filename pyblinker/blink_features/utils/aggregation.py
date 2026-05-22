@@ -8,7 +8,7 @@ import mne
 import numpy as np
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

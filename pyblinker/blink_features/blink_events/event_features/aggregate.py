@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 import mne
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .blink_count import blink_count
 from .inter_blink_interval import inter_blink_interval_epochs

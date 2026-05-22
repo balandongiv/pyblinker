@@ -11,7 +11,7 @@ from typing import Dict, Sequence
 
 import numpy as np
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 from pyblinker.utils.metadata_utils import extract_blink_windows, segment_to_samples
 
 

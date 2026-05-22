@@ -6,7 +6,7 @@ transform (DWT) energies of blink segments. The public API is exposed via
 """
 
 from __future__ import annotations
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 
 import numpy as np

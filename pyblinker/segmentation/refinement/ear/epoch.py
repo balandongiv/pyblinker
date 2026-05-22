@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from ..eeg import compute_outer_bounds
 from .threshold import (

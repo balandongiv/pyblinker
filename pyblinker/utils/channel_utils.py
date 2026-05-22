@@ -7,7 +7,7 @@ from typing import Iterable, Sequence
 import mne
 from mne.io import BaseRaw
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 logger = get_logger(__name__)
 

@@ -1,7 +1,7 @@
 """Inter-blink interval based features."""
 
 from typing import Dict, List, Sequence, Iterable, Tuple
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 import numpy as np
 import pandas as pd

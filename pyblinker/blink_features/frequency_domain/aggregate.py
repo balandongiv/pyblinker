@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .features import _compute_wavelet_energies
 from ..energy.helpers import compute_basic_statistics

@@ -13,7 +13,7 @@ Refactor goals achieved in this version:
 """
 
 from __future__ import annotations
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from typing import Sequence, Dict, Any, List, Iterable, Tuple
 import itertools

@@ -9,7 +9,7 @@ from typing import List, Tuple
 import mne
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from ...utils.iter_utils import ensure_list
 from ..constants import cast_columns_to_object, infer_modality

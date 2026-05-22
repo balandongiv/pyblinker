@@ -5,7 +5,7 @@ indexed directly in sample space without onset+duration conversions.
 """
 
 from __future__ import annotations
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from typing import Dict, List, Mapping, Sequence, Set
 

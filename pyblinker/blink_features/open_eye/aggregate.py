@@ -3,7 +3,7 @@
 from typing import Iterable, Dict, List, Any
 import pandas as pd
 import numpy as np
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .features import (
     baseline_mean_epoch,

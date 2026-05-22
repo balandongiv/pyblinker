@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 from pyblinker.blinker.stroke_utils import max_pos_vel_frame
 from pyblinker.fitutils.forking import corr, get_intersection, polyfit, polyval
 

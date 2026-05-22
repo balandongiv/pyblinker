@@ -6,7 +6,7 @@ import mne
 import numpy as np
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 from pyblinker.utils import normalize_picks
 from pyblinker.utils.metadata_utils import extract_blink_windows
 from pyblinker.utils.modality import infer_modality

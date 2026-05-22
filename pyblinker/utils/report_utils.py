@@ -10,7 +10,7 @@ import mne
 import numpy as np
 from tqdm import tqdm
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 
 from .channel_utils import pick_ear_channels_from_info
 from .iter_utils import ensure_float_list

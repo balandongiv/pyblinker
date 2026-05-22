@@ -2,7 +2,7 @@ import mne
 import numpy as np
 import pandas as pd
 
-from pyblinker.logging import get_logger
+from pyblinker._logging import get_logger
 from pyblinker.blink_features.waveform_features.extract_blink_properties import (
     BlinkProperties,
 )
@@ -48,8 +48,7 @@ def get_mne_blink(detector, channel=None):
     # Find the actual channel name used by MNE if none was provided
     if channel is None:
         try:
-            # Re-run _get_eog_channel_index to know which one it picked
-            eog_inds = mne.preprocessing.eog._get_eog_channel_index(None, raw)
+            eog_inds = mne.pick_types(raw.info, meg=False, eeg=False, eog=True)
             ch_names = [raw.ch_names[i] for i in eog_inds]
             channel = ch_names[0] if ch_names else raw.ch_names[0]
             logger.info(f"MNE automatically selected channel: {channel}")
