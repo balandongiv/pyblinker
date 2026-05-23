@@ -110,3 +110,32 @@ def get_blink_position(
             "end_blink": end_blinks,
         }
     )
+
+
+def compute_basic_statistics(
+    params: dict,
+    blink_component: np.ndarray,
+) -> tuple[float, float]:
+    """Return MATLAB-equivalent thresholding statistics (public alias).
+
+    Returns (min_blink_frames, threshold).
+    """
+    return _compute_basic_statistics(params, blink_component)
+
+
+def scan_threshold_crossings_kleifges(
+    blink_component: np.ndarray,
+    threshold: float,
+    min_blink_frames: float,
+    *,
+    progress_bar: bool,
+    channel_name: str | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Kleifges 2017 threshold-crossing scan — no minimum-separation filtering."""
+    return _scan_threshold_crossings(
+        blink_component,
+        threshold,
+        min_blink_frames,
+        progress_bar=progress_bar,
+        channel_name=channel_name,
+    )
