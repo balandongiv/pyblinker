@@ -1,0 +1,6 @@
+eeg_regions:
+  frontal_left:
+    - 23
+    - 24
+    - 33
+    - 22

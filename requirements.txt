@@ -14,3 +14,4 @@ edfio>=0.4.0
 
 # Utilities
 gdown
+PyYAML

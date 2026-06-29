@@ -6,16 +6,82 @@ from ..fitutils import mad
 from .default_setting import SCALING_FACTOR
 
 
+_SUPPORTED_CENTER_METHODS = ("median", "mean")
+
+
+def compute_robust_threshold(
+    samples: np.ndarray,
+    std_threshold: float,
+    *,
+    center_method: str = "mean",
+    scaling_factor: float = SCALING_FACTOR,
+) -> tuple[float, float, float]:
+    """Compute a robust detection threshold from a 1-D sample array.
+
+    The threshold follows the BLINKER convention::
+
+        dispersion = scaling_factor * MAD(samples)   # a.k.a. robust_std
+        threshold  = center + std_threshold * dispersion
+
+    where ``center`` is either the median (rank-based, robust to large blink
+    peaks) or the mean (pulled upward by peaks, more conservative).
+
+    Parameters
+    ----------
+    samples:
+        1-D array of signal amplitude samples for a single channel.
+    std_threshold:
+        Multiplier ``k`` applied to the MAD-based dispersion term.
+    center_method:
+        ``"mean"`` (default, the legacy ``_compute_basic_statistics`` behaviour)
+        or ``"median"`` (robust centre used by the double-thresholding strategy).
+    scaling_factor:
+        Factor normalising MAD to the standard-deviation scale (``1.4826`` for a
+        normal distribution, matching MATLAB BLINKER).
+
+    Returns
+    -------
+    center : float
+        Central tendency of ``samples`` (median or mean).
+    dispersion : float
+        Robust standard-deviation estimate ``scaling_factor * MAD(samples)``.
+    threshold : float
+        ``center + std_threshold * dispersion``.
+
+    Raises
+    ------
+    ValueError
+        If ``center_method`` is not one of ``("median", "mean")``. ok check
+    """
+
+    if center_method not in _SUPPORTED_CENTER_METHODS:
+        raise ValueError(
+            f"center_method={center_method!r} is not supported. "
+            f"Choose one of {_SUPPORTED_CENTER_METHODS}."
+        )
+
+    if center_method == "median":
+        center = float(np.median(samples))
+    else:  # "mean"
+        center = float(np.mean(samples, dtype=np.float64))
+
+    dispersion = float(scaling_factor * mad(samples))  # a.k.a. robust_std
+    threshold = center + float(std_threshold) * dispersion
+    return center, dispersion, threshold
+
+
 def _compute_basic_statistics(
     params: dict,
     blink_component: np.ndarray,
 ) -> tuple[float, float]:
     """Return MATLAB-equivalent thresholding statistics."""
 
-    mean_value = float(np.mean(blink_component, dtype=np.float64))
-    robust_std = float(SCALING_FACTOR * mad(blink_component))
+    _center, _dispersion, threshold = compute_robust_threshold(
+        blink_component,
+        params["std_threshold"],
+        center_method="mean",
+    )
     min_blink_frames = float(params["min_event_len"] * params["sfreq"])
-    threshold = float(mean_value + params["std_threshold"] * robust_std)
     return min_blink_frames, threshold
 
 
@@ -25,7 +91,7 @@ def _scan_threshold_crossings(
     min_blink_frames: float,
     *,
     progress_bar: bool,
-    channel_name: str | None,
+    channel_name: str | None, #ok
 ) -> tuple[np.ndarray, np.ndarray]:
     """Collect candidate blink onsets/offsets using MATLAB loop semantics."""
 
@@ -129,7 +195,7 @@ def scan_threshold_crossings_kleifges(
     min_blink_frames: float,
     *,
     progress_bar: bool,
-    channel_name: str | None,
+    channel_name: str | None,# ok
 ) -> tuple[np.ndarray, np.ndarray]:
     """Kleifges 2017 threshold-crossing scan — no minimum-separation filtering."""
     return _scan_threshold_crossings(
